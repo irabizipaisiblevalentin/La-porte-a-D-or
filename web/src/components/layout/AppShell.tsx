@@ -4,7 +4,6 @@ import { Bell, BellRing, LogOut, Menu, Search, Settings, UserRound, X } from "lu
 import { useAuth } from "../../auth/AuthProvider"
 import { useQuery } from "../../api/hooks"
 import { Badge, Spinner, ThemeToggle } from "../../components/ui"
-import { ContactChairman } from "./ContactChairman"
 import { useDesktopNotifications } from "./useDesktopNotifications"
 import { NAV_SECTIONS } from "./nav"
 
@@ -291,8 +290,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           Chorale La Porte d'Or · Digital Choir Management Platform
         </footer>
       </div>
-
-      <ContactChairman />
     </div>
   )
 }

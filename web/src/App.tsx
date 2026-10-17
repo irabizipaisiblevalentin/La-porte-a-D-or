@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { Outlet, Route, Routes } from "react-router-dom"
 import { RequireAuth, RequirePermission } from "./auth/guards"
 import { AppShell } from "./components/layout/AppShell"
+import { ContactChairman } from "./components/layout/ContactChairman"
 import { PublicLayout } from "./components/layout/PublicLayout"
 import { LandingPage } from "./pages/public/LandingPage"
 import { LoginPage, AdminLoginPage } from "./pages/auth/LoginPage"
@@ -43,7 +44,8 @@ function guarded(permission: string, element: ReactNode): ReactNode {
 
 export function App() {
   return (
-    <Routes>
+    <>
+      <Routes>
       <Route
         path="/"
         element={
@@ -108,7 +110,9 @@ export function App() {
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+      </Routes>
+      <ContactChairman />
+    </>
   )
 }
 
