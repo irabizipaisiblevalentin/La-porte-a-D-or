@@ -1,0 +1,23 @@
+{
+  "name": "chorale-la-porte-dor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Chorale La Porte d'Or — Digital Choir Management and Music Library Platform",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c gold,ivory \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "migrate": "npm run migrate -w server",
+    "seed": "npm run seed -w server",
+    "seed:admins": "npm run seed:admins -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,0 +1,191 @@
+export type PermissionScope = "global" | "senior" | "junior" | "members" | "own"
+
+export interface PermissionDef {
+  key: string
+  name: string
+  description: string
+  /** Scopes this permission may be granted with. `own` means "only records that belong to the user". */
+  scopes: PermissionScope[]
+}
+
+const GROUP_SCOPED: PermissionScope[] = ["global", "senior", "junior", "members", "own"]
+
+export const PERMISSIONS: PermissionDef[] = [
+  { key: "dashboard.view", name: "View dashboards", description: "Open the role-appropriate dashboard.", scopes: ["global"] },
+
+  { key: "application.read", name: "View applications", description: "Read submitted membership applications.", scopes: ["senior", "junior", "members"] },
+  { key: "application.review", name: "Review applications", description: "Add review notes and change application status.", scopes: ["senior", "junior", "members"] },
+  { key: "application.decide", name: "Approve or reject applications", description: "Approve or reject applications and create member accounts.", scopes: ["senior", "junior", "members"] },
+
+  { key: "member.read", name: "View member records", description: "Read member profiles in the permitted group.", scopes: GROUP_SCOPED },
+  { key: "member.write", name: "Manage member records", description: "Create and edit member profiles in the permitted group.", scopes: GROUP_SCOPED },
+  { key: "member.sensitive.read", name: "View sensitive minor records", description: "Read guardian, emergency contact and detailed address data for juniors.", scopes: ["global", "junior"] },
+
+  { key: "music.read", name: "View music library", description: "Browse the song catalogue and video metadata.", scopes: ["global"] },
+  { key: "music.write", name: "Manage song catalogue", description: "Create and edit songs, videos, categories and assignments.", scopes: ["global"] },
+  { key: "music.discovery", name: "Run YouTube discovery", description: "Verify the official channel and import discovered videos.", scopes: ["global"] },
+  { key: "music.lyrics.write", name: "Manage lyrics", description: "Enter or edit authorised lyrics for songs.", scopes: ["global"] },
+  { key: "music.audio.write", name: "Manage practice tracks", description: "Upload and manage authorised practice audio resources.", scopes: ["global"] },
+  { key: "music.progress.write", name: "Record song progress", description: "Record learning-stage and progress history for songs.", scopes: ["global"] },
+
+  { key: "attendance.read", name: "View attendance", description: "Read attendance sessions and records.", scopes: GROUP_SCOPED },
+  { key: "attendance.write", name: "Manage attendance", description: "Create sessions and record attendance.", scopes: ["global", "senior", "junior", "members"] },
+
+  { key: "discipline.read", name: "View discipline records", description: "Read discipline and recognition records.", scopes: ["global", "senior", "junior", "own"] },
+  { key: "discipline.write", name: "Manage discipline records", description: "Create and update discipline records.", scopes: ["global", "senior", "junior"] },
+  { key: "recognition.write", name: "Manage positive recognition", description: "Record positive recognition for members.", scopes: ["global", "senior", "junior"] },
+
+  { key: "goals.read", name: "View goals", description: "View choir goals and progress history.", scopes: ["global"] },
+  { key: "goals.write", name: "Manage goals", description: "Create goals and record progress.", scopes: ["global"] },
+
+  { key: "events.read", name: "View events", description: "View events and participants.", scopes: ["global"] },
+  { key: "events.write", name: "Manage events", description: "Create and edit events and participants.", scopes: ["global"] },
+
+  { key: "training.read", name: "View training", description: "View training sessions and participant history.", scopes: ["global"] },
+  { key: "training.write", name: "Manage training", description: "Create and edit training sessions and participants.", scopes: ["global"] },
+
+  { key: "announcements.read", name: "View announcements", description: "Read announcements addressed to you.", scopes: ["global"] },
+  { key: "announcements.write", name: "Manage announcements", description: "Create, schedule and publish announcements.", scopes: ["global"] },
+
+  { key: "notifications.read", name: "View notifications", description: "Read personal notifications.", scopes: ["global"] },
+
+  { key: "messages.send", name: "Message the Chairman", description: "Send a private message to the Chairman of the choir.", scopes: ["own"] },
+  { key: "messages.read", name: "Read Chairman inbox", description: "Read the private messages members have sent to the Chairman.", scopes: ["global"] },
+  { key: "messages.reply", name: "Reply as the Chairman", description: "Reply to members' private messages on behalf of the Chairman.", scopes: ["global"] },
+
+  { key: "reports.read", name: "View reports", description: "Access the reporting centre.", scopes: ["global", "senior", "junior", "members"] },
+  { key: "audit.read", name: "View audit log", description: "Read the append-only audit history.", scopes: ["global"] },
+
+  { key: "settings.read", name: "View system settings", description: "View configuration and integration status.", scopes: ["global"] },
+  { key: "settings.write", name: "Manage system settings", description: "Change configuration, policies and integration credentials.", scopes: ["global"] },
+  { key: "roles.manage", name: "Manage roles", description: "Assign and revoke administrator roles and permissions.", scopes: ["global"] },
+  { key: "users.manage", name: "Manage accounts", description: "Create, invite, activate and deactivate user accounts.", scopes: ["global"] },
+  { key: "search.global", name: "Global search", description: "Search records visible to your permissions.", scopes: ["global"] },
+]
+
+export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key)
+
+export function permissionId(key: string): string {
+  return `perm_${key.replace(/\./g, "_")}`
+}
+
+export interface RoleDef {
+  key: string
+  name: string
+  description: string
+  grants: { key: string; scope: PermissionScope }[]
+}
+
+const g = (key: string, scope: PermissionScope) => ({ key, scope })
+
+export const ROLES: RoleDef[] = [
+  {
+    key: "chairman",
+    name: "Chairman",
+    description: "Chairman of the choir — the founder and supreme administrator. Organisation-wide access across the Senior, Junior and Support Member groups. Every important action is audited.",
+    grants: PERMISSIONS.map((p) => g(p.key, "global")),
+  },
+  {
+    key: "junior_admin",
+    name: "Junior Administrator",
+    description: "Manages Junior applications, members, attendance, discipline, progress and approved shared choir resources.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("application.read", "junior"), g("application.review", "junior"), g("application.decide", "junior"),
+      g("member.read", "junior"), g("member.write", "junior"), g("member.sensitive.read", "junior"),
+      g("music.read", "global"), g("music.write", "global"), g("music.discovery", "global"),
+      g("music.lyrics.write", "global"), g("music.audio.write", "global"), g("music.progress.write", "global"),
+      g("attendance.read", "junior"), g("attendance.write", "junior"),
+      g("discipline.read", "junior"), g("discipline.write", "junior"), g("recognition.write", "junior"),
+      g("goals.read", "global"), g("goals.write", "global"),
+      g("events.read", "global"), g("events.write", "global"),
+      g("training.read", "global"), g("training.write", "global"),
+      g("announcements.read", "global"), g("announcements.write", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("reports.read", "junior"),
+      g("search.global", "global"),
+    ],
+  },
+  {
+    key: "members_admin",
+    name: "Members Administrator",
+    description: "Manages Support Member applications, profiles, responsibilities, attendance, training, events and reports.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("application.read", "members"), g("application.review", "members"), g("application.decide", "members"),
+      g("member.read", "members"), g("member.write", "members"),
+      g("music.read", "global"),
+      g("attendance.read", "members"), g("attendance.write", "members"),
+      g("goals.read", "global"),
+      g("events.read", "global"), g("events.write", "global"),
+      g("training.read", "global"), g("training.write", "global"),
+      g("announcements.read", "global"), g("announcements.write", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("reports.read", "members"),
+      g("search.global", "global"),
+    ],
+  },
+  {
+    key: "senior_singer",
+    name: "Senior Singer",
+    description: "Ordinary Senior chorister. Own profile, own attendance, own progress and shared choir information.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("member.read", "own"), g("member.write", "own"),
+      g("music.read", "global"),
+      g("attendance.read", "own"),
+      g("discipline.read", "own"),
+      g("goals.read", "global"),
+      g("events.read", "global"),
+      g("training.read", "global"),
+      g("announcements.read", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("search.global", "global"),
+    ],
+  },
+  {
+    key: "junior_singer",
+    name: "Junior Singer",
+    description: "Young chorister still in school. Own profile, attendance, progress, junior events and announcements.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("member.read", "own"), g("member.write", "own"),
+      g("music.read", "global"),
+      g("attendance.read", "own"),
+      g("goals.read", "global"),
+      g("events.read", "global"),
+      g("training.read", "global"),
+      g("announcements.read", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("search.global", "global"),
+    ],
+  },
+  {
+    key: "support_member",
+    name: "Support Member",
+    description: "Supports the choir without singing: media, sound, IT, finance, transport, events and related duties.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("member.read", "own"), g("member.write", "own"),
+      g("attendance.read", "own"),
+      g("goals.read", "global"),
+      g("events.read", "global"),
+      g("training.read", "global"),
+      g("announcements.read", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("search.global", "global"),
+    ],
+  },
+]
+
+export const ROLE_KEYS = ROLES.map((r) => r.key)
+
+export const ADMIN_ROLE_KEYS = ["chairman", "junior_admin", "members_admin"]
+
+/** Roles a Chairman may grant (self-service beyond this is not allowed). */
+export const ASSIGNABLE_ROLE_KEYS = ROLE_KEYS

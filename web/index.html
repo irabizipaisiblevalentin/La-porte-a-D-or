@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0c10" />
+    <meta
+      name="description"
+      content="Chorale La Porte d'Or — digital platform for choir members, music library, attendance, events and administration."
+    />
+    <title>Chorale La Porte d'Or</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      // Apply the stored theme before paint to avoid a flash.
+      (function () {
+        try {
+          var theme = localStorage.getItem("cldo-theme")
+          if (!theme) theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"
+          document.documentElement.classList.toggle("dark", theme !== "light")
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

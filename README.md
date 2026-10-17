@@ -1,0 +1,471 @@
+# Chorale La Porte d'Or — Digital Choir Management & Music Library Platform
+
+A complete, database-backed platform for managing the choir's members, admissions, music
+library, attendance, discipline, goals, events, training, communication, reporting and
+administration — with three official groups (Senior, Junior, Support Members) and a
+gold/charcoal premium interface in light and dark themes.
+
+> **No public registration.** Every applicant applies through the official Google Form
+> (`https://forms.gle/JZJmWZNMQAYNm5uq5`). There are no Sign Up / Register controls anywhere.
+> An account is created only after an administrator approves an application.
+
+---
+
+## Contents
+
+- [What is built](#what-is-built)
+- [Tech stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Quick start (development)](#quick-start-development)
+- [First administrator setup](#first-administrator-setup)
+- [Default development sign-in accounts](#default-development-sign-in-accounts)
+- [Production build & run](#production-build--run)
+- [Deploying to the internet (`*.web.app`)](#deploying-to-the-internet-webapp)
+- [Environment variables](#environment-variables)
+- [Roles & permissions](#roles--permissions)
+- [Integrations](#integrations)
+- [The membership lifecycle](#the-membership-lifecycle)
+- [Testing status](#testing-status)
+- [Security notes](#security-notes)
+- [Project structure](#project-structure)
+
+---
+
+## What is built
+
+| Module | Capability |
+| --- | --- |
+| **Public site** | Landing page with the choir's real logo and photographs, about, music highlights (official YouTube embeds), gallery, upcoming public events, contact, and the official application form link. |
+| **Admissions** | Applications arrive from the Google Form (webhook/sheet), can also be entered manually, then reviewed. Statuses: pending, under review, more information required, approved, rejected. Approving creates **exactly one** member plus an invited account; rejecting preserves the record. |
+| **Members** | Three groups only (Senior, Junior, Support Members), voice sections, contact details, and protected guardian/emergency records for juniors. Member numbers like `CHR-2026-0001`. |
+| **Music library** | Songs, categories, learning stages, per-group assignments, progress history, lyrics (only when lawfully supplied), private audio resources, and video links to the official channel. |
+| **Discovery** | YouTube Data API discovery of the official channel with a review queue, plus **manual URL import** that works without an API key. |
+| **Attendance** | Sessions by activity type, markable rosters, and rates computed from a configurable policy (nullable and explained when there is no data). |
+| **Discipline & recognition** | Negative and positive records with categories, history, and per-member views. |
+| **Goals** | Annual/monthly/custom goals with cumulative progress entries, percent complete, deadlines and overdue flags. |
+| **Events & training** | Events with participants and sung songs; training sessions with per-participant attendance and completion. |
+| **Communication** | Announcements (targeted audiences, priorities, scheduling) with starter templates and read tracking; in-app notifications. |
+| **Reports** | Membership, attendance, discipline, music, goals, events and personal reports, all computed from the database. |
+| **Administration** | User accounts, role assignment, invitations, password resets, an append-only audit log, global search, application settings, integration settings and brand uploads. |
+
+The backend is real and authoritative: **all important information lives in the database**, never
+only in React state, local storage or hardcoded arrays. Where an external service is not yet
+configured, the platform says so honestly ("awaiting setup") rather than showing fabricated data.
+
+---
+
+## Tech stack
+
+- **Runtime:** Node.js 24, TypeScript (ESM, `.js` import extensions).
+- **Server:** Express 5, `better-sqlite3` (SQLite with WAL and real foreign keys).
+- **Web:** React 19, Vite 7, Tailwind CSS v4, React Router v7, `recharts`, `lucide-react`.
+- **Auth:** scrypt password hashing (`node:crypto`), httpOnly cookie sessions with an opaque
+  token stored **hashed** in the database, rolling expiry, and account lockout after 8 failed logins.
+- **Secrets at rest:** AES-256-GCM, key derived from `APP_SECRET`.
+
+---
+
+## Prerequisites
+
+- **Node.js 24+** and npm 10+. (Node 22 may work, but 24 is what was used.)
+- A writable data directory (defaults to `server/data/`).
+- No Docker, Postgres or external database is required.
+
+---
+
+## Quick start (development)
+
+```bash
+# 1. Install all workspaces
+npm install
+
+# 2. Create the database schema and seed reference data
+npm run migrate
+npm run seed        # optional; the server also seeds on boot
+
+# 3. Run the API and the web app together
+npm run dev
+#   API  -> http://localhost:4000
+#   Web  -> http://localhost:5173  (Vite proxies /api and /media to the API)
+```
+
+Then open the web app. If no administrator exists yet you will be guided to first-time setup
+(see below). The API health check is at `http://localhost:4000/api/health`.
+
+Want ready-made logins instead of going through first-time setup? Seed the
+[default development accounts](#default-development-sign-in-accounts):
+
+```bash
+npm run seed:admins
+```
+
+Individual commands:
+
+```bash
+npx tsx src/index.ts        # server only (from ./server), port 4000
+npm run dev -w web          # web only, Vite on 5173
+```
+
+---
+
+## First administrator setup
+
+There is **no public endpoint that grants the Chairman role.** The first administrator (the Chairman —
+the founder and supreme administrator) is created once, using a one-time token:
+
+1. Start the server. On first boot, because no administrator exists, the server writes a token to
+   - the server console, and
+   - `server/data/FIRST-ADMIN-SETUP.txt` (permissions `0600`).
+2. Open `/setup` in the web app (the login page links to it automatically while setup is pending).
+3. Enter the token and choose the Chairman's name, email and a strong password.
+
+`GET /api/setup/status` reports whether setup is still needed. `POST /api/setup` only works while no
+administrator exists and requires the one-time token. Once the first Chairman exists the setup route
+closes permanently.
+
+> Delete `server/data/FIRST-ADMIN-SETUP.txt` after setup if you wish; it is not needed again.
+
+**Reset a development database** (destructive):
+
+```bash
+rm -f server/data/chorale.db*
+cd server && npx tsx src/db/migrate.ts && npx tsx src/db/seed.ts
+```
+
+---
+
+## Administrator accounts
+
+The three administrator accounts can be created (or reset) with a single command:
+
+```bash
+npm run seed:admins
+```
+
+This creates — or resets — the **three real administrator accounts** for the choir. It is
+**idempotent** (re-running resets the passwords to the values below) and it is **never run
+automatically** on server boot, so no known password exists on a normal deployment. It refuses to
+run when `NODE_ENV=production` unless you pass `ALLOW_DEFAULT_ACCOUNTS=1`.
+
+| Role | Email | Password | Sign-in page |
+| --- | --- | --- | --- |
+| **Chairman** (supreme, all three groups) | `chairman@laportedor.local` | `ChairmanLogin!2026` | `/admin/login` |
+| Junior Administrator | `junior.admin@laportedor.local` | `JuniorAdminLogin!2026` | `/admin/login` |
+| Members Administrator | `members.admin@laportedor.local` | `MembersAdminLogin!2026` | `/admin/login` |
+
+Each account is given the matching profile photo from `web/public/assets/avatars/`
+(`chairman.png`, `junior-admin.jpg`, `members-admin.jpg`). The **Chairman controls all three groups**
+(Senior, Junior and Members/Support Members) and is the only account with organisation-wide settings,
+integrations and audit access.
+
+**Override the credentials per deployment** without editing code — set any of these before running
+`seed:admins` (or on the server before first boot):
+
+| Variable | Purpose |
+| --- | --- |
+| `CHAIRMAN_EMAIL`, `CHAIRMAN_NAME`, `CHAIRMAN_PASSWORD` | Chairman account. |
+| `JUNIOR_ADMIN_EMAIL`, `JUNIOR_ADMIN_NAME`, `JUNIOR_ADMIN_PASSWORD` | Junior administrator. |
+| `MEMBERS_ADMIN_EMAIL`, `MEMBERS_ADMIN_NAME`, `MEMBERS_ADMIN_PASSWORD` | Members administrator. |
+
+> **These are sample credentials.** Change them — by re-running with the environment overrides above,
+> or from **Administration → Accounts** after signing in — before any real deployment.
+
+Administrators sign in at **`/admin/login`** (linked from the public site as "Admin"); everyone else
+signs in at **`/login`**. After signing in, all land on the role-appropriate dashboard at `/app`.
+Real member accounts are created by approving applications (or inviting a user) — there is no public
+registration.
+
+---
+
+## Production build & run
+
+```bash
+npm run build          # builds web (vite) then server (tsc)
+npm start              # starts the API, which also serves the built web app
+```
+
+When `web/dist` exists the API serves the single-page app (with history fallback) and the public
+media bucket at `/media/*`. Put a TLS-terminating proxy in front and set:
+
+```
+NODE_ENV=production
+APP_SECRET=<a long random secret, at least 16 chars>
+SESSION_COOKIE_SECURE=true
+```
+
+---
+
+## Deploying to the internet (`*.web.app`)
+
+A ready-made path to a public **`https://<project>.web.app`** URL is included:
+
+```bash
+PROJECT_ID=your-project-id ./deploy/deploy.sh
+```
+
+It deploys the server to **Cloud Run** and puts **Firebase Hosting** in front for the
+`*.web.app` address. Because Cloud Run's disk is ephemeral and the app uses SQLite,
+the database is continuously replicated to Cloud Storage with **Litestream**
+(`Dockerfile` + `deploy/entrypoint.sh`). Full instructions, caveats, and the
+first-admin step are in **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**.
+
+---
+
+## Environment variables
+
+All are optional in development; the ones marked **prod** should be set in production.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `4000` | API port. |
+| `HOST` | `0.0.0.0` | Bind address. |
+| `NODE_ENV` | `development` | `production` enables production behaviour. **prod** |
+| `APP_SECRET` | generated → `data/.app-secret` | Key for session-token hashing and secret encryption. **prod** |
+| `DATA_DIR` | `server/data` | Data directory (database, uploads, `.app-secret`). |
+| `DATABASE_FILE` | `data/chorale.db` | SQLite file path. |
+| `WEB_DIST_DIR` | `../web/dist` | Built web app to serve. |
+| `SESSION_COOKIE_NAME` | `cldo_session` | Session cookie name. |
+| `SESSION_COOKIE_SECURE` | `false` | Set `true` behind HTTPS. **prod** |
+| `SESSION_TTL_DAYS` | `7` | Session lifetime (rolling). |
+| `MAX_IMAGE_BYTES` | `8388608` | Upload limit for images. |
+| `MAX_AUDIO_BYTES` | `83886080` | Upload limit for audio. |
+| `MAX_DOCUMENT_BYTES` | `16777216` | Upload limit for documents. |
+
+Secrets for integrations (YouTube, Google Sheets, SMTP) are **not** environment variables — they are
+entered in the app under **Settings → Integrations** and stored encrypted at rest.
+
+---
+
+## Roles & permissions
+
+Permissions are keyed values with scopes: `global`, `senior`, `junior`, `members`, `own`.
+`global` satisfies everything; `own` is limited to the user's own records. Authorization is enforced
+server-side on every protected request (`can`, `canActOnMember`, `assertGroupAccess`,
+`permittedGroupIds`), including group isolation — a Junior Admin can never read senior or
+support-member records, even by guessing an id (the API returns 403/404).
+
+| Role | Scope | Summary |
+| --- | --- | --- |
+| `chairman` | global | **Chairman of the choir** — the founder and supreme administrator. Controls **all three groups**, plus settings, integrations and audit. |
+| `junior_admin` | junior + shared | Junior applications, members, attendance, discipline, progress; shared music/goals/events/training/announcements. |
+| `members_admin` | members + shared | Support-member applications, profiles, attendance, training, events, reports; shared read of the rest. |
+| `senior_singer` | own + shared read | Own profile/attendance, shared music, events, training, announcements. |
+| `junior_singer` | own + shared read | As above; no discipline view by default. |
+| `support_member` | own + shared read | Support member's own records and shared read. |
+
+Settings, integrations, brand uploads and the audit log are **Chairman only** (organisation-wide).
+
+Any signed-in member also has `messages.send`, which powers the **“Message the Chairman”** button
+(the floating button on every app screen, and the **Messages** page). The Chairman holds
+`messages.read` / `messages.reply` and answers from their inbox; the conversation — including the
+reply — is preserved for both sides. There is no SMS gateway: messages are delivered in-app (and the
+Chairman is notified).
+
+---
+
+## Integrations
+
+Two integrations are scaffolded with **honest status reporting** and a working manual fallback.
+Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
+
+- **YouTube (official channel).** Uses the YouTube Data API for *discovery and metadata only*.
+  Performances always play through YouTube's official embedded player; media is **never downloaded,
+  rehosted or proxied**, and lyrics are shown only when lawfully provided. Until an API key is added,
+  `/api/discovery/status` reports `apiConfigured: false`, channel search returns `configured: false`
+  with an empty list, and **manual URL import** still works.
+- **Google Sheets (application register).** Applications arrive via the signed webhook
+  (`POST /api/applications/webhook`, idempotent on `externalId`). When a signing secret is configured,
+  each call must carry an **HMAC-SHA256 signature** of the request body (the raw secret is also
+  accepted for quick setups). The webhook infers the applicant's name/email/phone and their chosen
+  group from the Google Form answers, then notifies the Chairman and that group's administrator. The
+  complete, copy-paste **Google Apps Script** (HMAC signing, retries, failure logging) is a single
+  copy-safe file at [`docs/apps-script/Code.gs`](docs/apps-script/Code.gs), with a setup and
+  troubleshooting guide in [`docs/apps-script/README.md`](docs/apps-script/README.md) and the
+  integration explained in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
+- **Email / SMS.** *Not configured.* In-app notifications are real, but external email is **not**
+  sent. Invitation and password-reset links are therefore surfaced to the administrator to share
+  manually — the UI states this plainly.
+
+---
+
+## The membership lifecycle
+
+```
+Google Form ─▶ Sheet ─▶ webhook/manual ─▶ application record ─▶ review
+        ─▶ approve ─▶ (exactly one) member + invited account ─▶ role ─▶ invitation link
+        ─▶ member activates ─▶ login
+```
+
+Submitting the form never creates an account. Only an approve decision — which requires the
+`application.decide` permission at the correct group scope — creates a member and an invitation, in
+a single transaction, and writes an audit entry.
+
+**Which administrator sees a submission.** The webhook reads the applicant's name, email/phone and
+the group from the Google Form answers (a flat `"Question": "Answer"` payload works as-is). The
+group answer — *Junior*, *Senior*, or *Support member* — is mapped to the official group, so the
+application lands in that group's queue: **Junior Admin** sees junior applications, **Members Admin**
+sees members/support applications, and the **Chairman** sees every application across all three
+groups. The Chairman and the group's own administrator are notified the moment an application
+arrives; the Chairman can always route an unassigned submission by choosing a group at approval.
+
+Approving an application stores the applicant's details on the new member: date of birth, gender,
+voice section, province/district/sector (as region/city/address), occupation and singing experience
+(senior), current class and emergency contact (junior), and skills (support). The complete answer set
+is always kept on the application. The photo-upload answer is kept as a clickable link rather than
+copied into the member photograph. See `docs/INTEGRATIONS.md` for the field-by-field mapping and a
+note on Google Forms' sign-in requirement for file uploads.
+
+Paste [`docs/apps-script/Code.gs`](docs/apps-script/Code.gs) into the Form's Apps Script project and
+run `installTrigger` once (see [`docs/apps-script/README.md`](docs/apps-script/README.md) for setup,
+including the “no target function” trigger fix). `docs/INTEGRATIONS.md` explains the webhook and the
+field mapping.
+
+---
+
+## Testing status
+
+**Verified green on this machine** (`node`/`tsx` against a running server and dev database):
+
+- `npm test` — 23 unit tests pass: password hashing/verification and strength rules, opaque token
+  hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
+  role/permission invariants (exactly six roles, exactly three admin roles, `junior_admin` /
+  `members_admin` cannot reach settings or audit, singers limited to own records, every granted
+  permission exists at an allowed scope), and the administrator-account definitions (strong passwords,
+  known roles, exactly the three admin roles, one profile photo each, env overrides).
+- `npm run typecheck` — server **and** web TypeScript compile with zero errors.
+- `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
+  into `dist/` so `npm start` (compiled output) boots.
+- Server boots, migrates, seeds (37 permissions, 6 roles, 3 groups, 4 voice sections, 8 song
+  categories, 5 learning stages, 10 discipline categories).
+- First-admin setup token issuance and `POST /api/setup` (creates the first **Chairman**).
+- Login, session cookie, `GET /api/auth/me`, logout.
+- **Admission lifecycle:** create application → under review → approve (creates one member + invited
+  account) → invitation valid → activate → new member logs in → `GET /members/me`.
+- Approve is **idempotent** (re-approving returns the same member, no second member, no new invite).
+- **Group isolation:** a Junior Admin sees junior members but zero senior members, is blocked (403/404)
+  from reading a senior member by id, cannot approve a senior application, and search does not leak
+  senior records.
+- **RBAC:** a Junior Admin is denied the audit log and settings (403); a plain member cannot read
+  another member. The Chairman reads all three groups org-wide.
+- **Chairman controls all three groups:** logs in with role `chairman`, sees Senior + Junior +
+  Members/Support Members in the group metadata, and holds every permission at global scope.
+- **“Message the Chairman”:** a non-Chairman can send (`POST /messages`), is **denied** the inbox
+  (`GET /messages?box=inbox` → 403) and denied replying (403); the Chairman sees the unread count,
+  reads the inbox, replies, and the sender then sees the reply in their sent box.
+- **Legacy role migration:** re-seeding a database that still holds the old `senior_admin` role moves
+  the assignments to `chairman` and removes the old role — the account keeps its supreme-admin access
+  and the one-time setup route stays closed.
+- Admin avatars are served (`/assets/avatars/chairman.png`, `junior-admin.jpg`, `members-admin.jpg`)
+  and attached to the three accounts.
+- Audit log is populated with `application.approve` and is append-only (read-only routes).
+- CRUD + honesty checks: songs (create, 409 on duplicate, detail shape, progress), discovery
+  (honest `configured:false`, manual import, queue), attendance (session create, detail, nullable
+  rate + policy), discipline, goals (progress math: current=3, numeric percent), events, training,
+  announcements (templates, create, publish), notifications, all seven reports, settings
+  (returns settings + integrations, **never** returns secret plaintext), integrations patch, roles.
+- SPA served with deep-link fallback (`/`, `/login`, `/admin/login`, `/admin`, `/app` → HTML) and
+  static assets (`/logo.png`, `/assets/gallery/*`, `/assets/avatars/*`).
+- **Administrator accounts:** `npm run seed:admins` creates the three accounts idempotently and
+  **all three log in successfully** — the Chairman and the two group administrators each get the admin
+  dashboard (`role` = chairman/junior_admin/members_admin). The admin sign-in page (`/admin/login`,
+  plus `/admin`) and the member sign-in page (`/login`) both serve.
+- **Role-differentiated dashboards:** the dashboard payload differs by role — the Chairman gets all
+  three groups, the two group admins get exactly their own group, and members get their personal view.
+  A live run confirmed the three admin dashboards report three distinct scope labels and only the
+  Chairman receives the member-message panels.
+- **Group-aware webhook intake (live):** a Google-Forms-style flat POST with only a *“Which group are
+  you applying for?”* answer had its **Junior** group inferred, produced a `pending` application, and
+  was visible to the Chairman **and** the Junior Admin while staying invisible to the Members Admin.
+  The Chairman and Junior Admin were each notified. Approving it created exactly one `CHK-…` member in
+  the junior group with an invitation URL, visible to the Chairman and Junior Admin but not the Members
+  Admin.
+- **Signed webhook (HMAC-SHA256, live):** with a secret configured, a correctly HMAC-signed request is
+  accepted (hex, case-insensitively), an uppercase digest is accepted, the raw shared secret is still
+  accepted, and a wrong digest, a missing signature, or a **tampered body** are all rejected with `403`.
+  A known-vector unit test pins the HMAC implementation.
+- **Chairman messaging notifications:** the Chairman's unread-count response now carries the latest
+  sender, the dashboard surfaces recent senders (“who is texting him”), the sidebar shows a live unread
+  badge on Messages, and the web app raises a device/desktop notification (Web Notifications API) when a
+  new message arrives.
+
+> The development database was reset for this launch: the previous test/demo rows (test singers,
+> testers, smoke songs, old `senior.admin@…` account) were removed. Reference data is re-seeded, so the
+> site starts clean with only the three real administrator accounts.
+
+**Not verified / requires setup or a browser:**
+
+- **YouTube Data API discovery** (`/discovery/channels`, `/discovery/run`) — needs an API key and a
+  verified channel before real results appear. Without them the honest "not configured" states were
+  verified instead.
+- **Google Sheets sync / webhook against a real sheet** — the signed, idempotent webhook endpoint was
+  exercised with a realistic flat Google-Forms payload (name/email/group inferred), but not against a
+  live Google Form/Apps Script deployment.
+- **Email/SMS delivery** — not configured; invitation/reset links are returned to the admin to share.
+  The “Message the Chairman” feature raises an **in-app notification and a device/desktop notification**
+  (Web Notifications API, shown while the app is open, on desktop and Android Chrome); it does **not**
+  send SMS or background push when the app is closed (that would need a push service such as VAPID
+  web-push).
+- **Browser/UI click-through and automated browser tests** — the UI compiles and builds and its API
+  contracts are exercised, but no Playwright/end-to-end browser suite was run here.
+- **Multipart file uploads** (member photos, song audio, application documents, brand/gallery) — the
+  routes and size/type validation exist; uploads were not exercised end-to-end in these tests.
+- Attendance rate arithmetic beyond the default policy values.
+- **The cloud deployment itself** (`Dockerfile`, `deploy/entrypoint.sh`, `deploy/deploy.sh`,
+  `firebase.json`, `docs/DEPLOYMENT.md`) — these were written and checked here only to the extent the
+  environment allows: shell syntax (`sh -n` / `bash -n`), JSON validity, and that the build outputs the
+  Dockerfile depends on exist (`server/dist/index.js`, `server/dist/db/schema.sql`,
+  `web/dist/index.html`). No `docker`, `gcloud`, or `firebase` CLI is installed in this environment, so
+  **the image was never built and nothing was deployed** — the actual build, Litestream
+  restore/replicate against a real bucket, the Cloud Storage media mount, and the Firebase Hosting
+  rewrite to Cloud Run all remain unverified until you run the deploy.
+
+---
+
+## Security notes
+
+- Passwords: scrypt with per-password salt; never logged.
+- Sessions: opaque random token, stored **hashed**; httpOnly cookie; rolling expiry; lockout.
+- Default development accounts (`npm run seed:admins`) are **opt-in**, never created on boot, and the
+  script refuses to run under `NODE_ENV=production` unless `ALLOW_DEFAULT_ACCOUNTS=1` is set. Change or
+  delete them before any real deployment.
+- Secrets (integration keys/credentials): AES-256-GCM at rest; never returned to the browser.
+- Every protected request checks authorization server-side, including group isolation; id/param
+  tampering cannot bypass it.
+- Audit log is append-only and excludes passwords, tokens and sensitive personal data.
+- Uploads: MIME/type and size limited; private files are streamed only after an authorization check
+  (`GET /api/files/:id`); public media is a separate bucket at `/media/*`.
+
+---
+
+## Project structure
+
+```
+choir/
+├─ Dockerfile             # Cloud Run image (web + server + Litestream)
+├─ firebase.json          # Firebase Hosting → Cloud Run rewrite (the *.web.app front door)
+├─ deploy/                # entrypoint.sh (Litestream restore/replicate), deploy.sh, hosting/
+├─ docs/
+│  ├─ API.md              # canonical endpoint contract
+│  ├─ CONVENTIONS.md      # stack, imports, auth, audit, UI conventions
+│  ├─ DEPLOYMENT.md       # Cloud Run + Firebase Hosting (https://<project>.web.app)
+│  ├─ INTEGRATIONS.md     # YouTube / Google Sheets / SMTP setup steps
+│  └─ apps-script/        # Code.gs + README.md (ready-to-paste Google Apps Script)
+├─ server/                # Express 5 + better-sqlite3 API
+│  ├─ src/
+│  │  ├─ auth/            # permissions, access control, sessions
+│  │  ├─ db/              # schema.sql, migrate, seed, seed-admins (default accounts)
+│  │  ├─ lib/             # security, secrets, errors, audit, http
+│  │  ├─ middleware/      # auth, rate-limit, error handling, uploads
+│  │  ├─ routes/          # one router per module
+│  │  ├─ services/        # groups, members, uploads, notifications, scheduler
+│  │  ├─ integrations/    # youtube
+│  │  ├─ app.ts, index.ts
+│  └─ data/               # database, uploads, first-admin token (git-ignored)
+└─ web/                   # React 19 + Vite + Tailwind v4
+   ├─ public/             # logo.png, assets/gallery/* (provided photographs)
+   └─ src/
+      ├─ api/             # fetch client + hooks
+      ├─ auth/            # AuthProvider, route guards
+      ├─ components/      # ui kit, layout shell
+      └─ pages/           # public, auth and app pages
+```

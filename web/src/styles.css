@@ -1,0 +1,370 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Cormorant Garamond", ui-serif, Georgia, serif;
+
+  --color-charcoal-950: #0a0b0f;
+  --color-charcoal-900: #101219;
+  --color-charcoal-850: #14161f;
+  --color-charcoal-800: #181b25;
+  --color-charcoal-700: #20242f;
+  --color-charcoal-600: #2b303d;
+  --color-charcoal-500: #3a404f;
+  --color-charcoal-400: #545c6e;
+
+  --color-gold-50: #fbf8ee;
+  --color-gold-100: #f6edd2;
+  --color-gold-200: #eedfa6;
+  --color-gold-300: #e3cb78;
+  --color-gold-400: #d4af37;
+  --color-gold-500: #c39b28;
+  --color-gold-600: #a17d1e;
+  --color-gold-700: #7d601c;
+  --color-gold-800: #5c4718;
+
+  --color-champagne: #e8d8a6;
+  --color-ivory: #f7f3ea;
+  --color-ivory-dim: #ded9cd;
+
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+}
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    background-color: var(--color-ivory);
+    color: var(--color-charcoal-900);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .dark body {
+    background-color: var(--color-charcoal-950);
+    color: var(--color-ivory);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.005em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold-400);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-gold-400) 35%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .surface {
+    background-color: #ffffff;
+  }
+  .dark .surface {
+    background-color: var(--color-charcoal-900);
+  }
+
+  .card {
+    border-radius: var(--radius-2xl);
+    border: 1px solid color-mix(in srgb, var(--color-charcoal-900) 8%, transparent);
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgb(10 11 15 / 0.04), 0 8px 24px -18px rgb(10 11 15 / 0.25);
+  }
+  .dark .card {
+    border-color: color-mix(in srgb, var(--color-gold-400) 12%, transparent);
+    background-color: color-mix(in srgb, var(--color-charcoal-900) 92%, transparent);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.02), 0 24px 48px -32px rgb(0 0 0 / 0.8);
+  }
+
+  .hairline {
+    border-color: color-mix(in srgb, var(--color-charcoal-900) 10%, transparent);
+  }
+  .dark .hairline {
+    border-color: color-mix(in srgb, var(--color-ivory) 10%, transparent);
+  }
+
+  .muted {
+    color: color-mix(in srgb, var(--color-charcoal-900) 62%, transparent);
+  }
+  .dark .muted {
+    color: color-mix(in srgb, var(--color-ivory) 62%, transparent);
+  }
+
+  .field {
+    width: 100%;
+    border-radius: var(--radius-xl);
+    border: 1px solid color-mix(in srgb, var(--color-charcoal-900) 14%, transparent);
+    background-color: #ffffff;
+    padding: 0.55rem 0.8rem;
+    font-size: 0.9rem;
+    color: inherit;
+  }
+  .dark .field {
+    border-color: color-mix(in srgb, var(--color-ivory) 14%, transparent);
+    background-color: color-mix(in srgb, var(--color-charcoal-850) 80%, transparent);
+  }
+  .field::placeholder {
+    color: color-mix(in srgb, var(--color-charcoal-900) 40%, transparent);
+  }
+  .dark .field::placeholder {
+    color: color-mix(in srgb, var(--color-ivory) 38%, transparent);
+  }
+  .field:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .field[aria-invalid="true"] {
+    border-color: #b4544a;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: var(--radius-xl);
+    padding: 0.55rem 0.95rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border: 1px solid transparent;
+    transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .btn-gold {
+    background: linear-gradient(180deg, var(--color-gold-300), var(--color-gold-500));
+    color: #221a06;
+    border-color: color-mix(in srgb, var(--color-gold-600) 60%, transparent);
+    font-weight: 600;
+  }
+  .btn-gold:hover:not(:disabled) {
+    background: linear-gradient(180deg, var(--color-gold-200), var(--color-gold-400));
+  }
+  .btn-outline {
+    border-color: color-mix(in srgb, var(--color-charcoal-900) 16%, transparent);
+    color: inherit;
+    background: transparent;
+  }
+  .dark .btn-outline {
+    border-color: color-mix(in srgb, var(--color-ivory) 18%, transparent);
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-gold-400) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-gold-400) 45%, transparent);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: inherit;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-gold-400) 12%, transparent);
+  }
+  .btn-danger {
+    border-color: color-mix(in srgb, #b4544a 50%, transparent);
+    color: #b4544a;
+    background: transparent;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, #b4544a 12%, transparent);
+  }
+  .btn-sm {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.8rem;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    letter-spacing: 0.01em;
+  }
+  .badge-gold {
+    background: color-mix(in srgb, var(--color-gold-400) 16%, transparent);
+    color: var(--color-gold-700);
+    border-color: color-mix(in srgb, var(--color-gold-400) 35%, transparent);
+  }
+  .dark .badge-gold {
+    color: var(--color-gold-200);
+  }
+  .badge-neutral {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    border-color: color-mix(in srgb, currentColor 22%, transparent);
+  }
+  .badge-positive {
+    background: color-mix(in srgb, #3f8f66 16%, transparent);
+    color: #2f7a52;
+    border-color: color-mix(in srgb, #3f8f66 35%, transparent);
+  }
+  .dark .badge-positive {
+    color: #8fd3ac;
+  }
+  .badge-warn {
+    background: color-mix(in srgb, #c79a2e 18%, transparent);
+    color: #8a6a12;
+    border-color: color-mix(in srgb, #c79a2e 38%, transparent);
+  }
+  .dark .badge-warn {
+    color: #f0d38a;
+  }
+  .badge-danger {
+    background: color-mix(in srgb, #b4544a 16%, transparent);
+    color: #a0433a;
+    border-color: color-mix(in srgb, #b4544a 38%, transparent);
+  }
+  .dark .badge-danger {
+    color: #ee9b92;
+  }
+
+  .link {
+    color: var(--color-gold-600);
+    text-underline-offset: 3px;
+  }
+  .dark .link {
+    color: var(--color-gold-300);
+  }
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius-xl);
+    border: 1px solid color-mix(in srgb, var(--color-charcoal-900) 10%, transparent);
+  }
+  .dark .table-wrap {
+    border-color: color-mix(in srgb, var(--color-ivory) 10%, transparent);
+  }
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  table.data thead th {
+    text-align: left;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    padding: 0.65rem 0.9rem;
+    color: color-mix(in srgb, var(--color-charcoal-900) 55%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-charcoal-900) 10%, transparent);
+    background: color-mix(in srgb, var(--color-gold-400) 7%, transparent);
+  }
+  .dark table.data thead th {
+    color: color-mix(in srgb, var(--color-ivory) 60%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--color-ivory) 10%, transparent);
+  }
+  table.data tbody td {
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-charcoal-900) 7%, transparent);
+    vertical-align: middle;
+  }
+  .dark table.data tbody td {
+    border-bottom-color: color-mix(in srgb, var(--color-ivory) 7%, transparent);
+  }
+  table.data tbody tr:last-child td {
+    border-bottom: none;
+  }
+  table.data tbody tr:hover {
+    background: color-mix(in srgb, var(--color-gold-400) 6%, transparent);
+  }
+
+  .skeleton {
+    border-radius: 8px;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, currentColor 8%, transparent),
+      color-mix(in srgb, currentColor 14%, transparent),
+      color-mix(in srgb, currentColor 8%, transparent)
+    );
+    animation: shimmer 1.4s ease-in-out infinite;
+    background-size: 200% 100%;
+  }
+
+  .gold-rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-gold-400), transparent);
+    border: 0;
+  }
+
+  .sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    border-radius: var(--radius-xl);
+    padding: 0.5rem 0.7rem;
+    font-size: 0.875rem;
+    color: color-mix(in srgb, var(--color-charcoal-900) 76%, transparent);
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+  .sidebar-link:hover {
+    background: color-mix(in srgb, var(--color-gold-400) 14%, transparent);
+    color: var(--color-charcoal-900);
+  }
+  .sidebar-link[data-active="true"] {
+    background: color-mix(in srgb, var(--color-gold-400) 20%, transparent);
+    color: var(--color-gold-700);
+    box-shadow: inset 2px 0 0 var(--color-gold-500);
+  }
+  .dark .sidebar-link {
+    color: color-mix(in srgb, var(--color-ivory) 72%, transparent);
+  }
+  .dark .sidebar-link:hover {
+    color: var(--color-gold-100);
+  }
+  .dark .sidebar-link[data-active="true"] {
+    color: var(--color-gold-100);
+    box-shadow: inset 2px 0 0 var(--color-gold-400);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

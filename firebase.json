@@ -1,0 +1,15 @@
+{
+  "hosting": {
+    "public": "deploy/hosting",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "chorale-app",
+          "region": "us-central1"
+        }
+      }
+    ]
+  }
+}
