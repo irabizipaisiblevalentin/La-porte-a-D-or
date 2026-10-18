@@ -44,7 +44,7 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
   const { user, login, loading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const [email, setEmail] = useState("")
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -61,7 +61,7 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
     setError(null)
     setSaving(true)
     try {
-      const account = await login(email, password)
+      const account = await login(identifier, password)
       navigate(account.mustChangePassword ? "/app/account" : from, { replace: true })
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Sign in failed.")
@@ -103,13 +103,18 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
           {error ? (
             <div className="rounded-xl border border-[#b4544a]/40 bg-[#b4544a]/10 px-3 py-2 text-sm text-[#b4544a]">{error}</div>
           ) : null}
-          <Field label="Email address" htmlFor="email" required>
+          <Field
+            label="Email address or username"
+            htmlFor="identifier"
+            hint="Use your username if you joined without an email address."
+            required
+          >
             <Input
-              id="email"
-              type="email"
+              id="identifier"
+              type="text"
               autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
               required
               autoFocus
             />

@@ -153,7 +153,7 @@ test("webhook accepts a form submission whose optional email is null", async () 
   assert.equal(row.status, "pending")
 })
 
-test("approving an application without an email is refused with a clear error", async () => {
+test("approving an application without an email creates a name-based account", async () => {
   const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
   const submitted = await api("POST", "/api/applications/webhook", {
     body: {
@@ -167,13 +167,41 @@ test("approving an application without an email is refused with a clear error", 
     },
   })
   assert.equal(submitted.status, 201)
+  const appId = submitted.json.applicationId as string
 
-  const approve = await api("POST", `/api/applications/${submitted.json.applicationId}/decision`, {
+  const approve = await api("POST", `/api/applications/${appId}/decision`, {
     cookie: senior, body: { decision: "approve" },
   })
-  assert.equal(approve.status, 400, "an account needs an email; approval must say so, not 500")
-  assert.equal(approve.json.error.details.fields.email, "Required to create the account.")
-  assert.equal(memberCountFor(""), 0, "no member is created without an email")
+  assert.equal(approve.status, 201, `a blank email must still be approvable: ${JSON.stringify(approve.json)}`)
+  assert.ok(approve.json.member?.member?.member_no, "a member record is created")
+  assert.ok(approve.json.invitation?.url, "an invitation is created")
+  assert.equal(approve.json.invitation.username, "No Email Applicant", "the sign-in name comes from the full name")
+
+  // The stored email is a reserved placeholder, never a real address.
+  const account = one<{ email: string; username: string; username_normalized: string; status: string }>(
+    "SELECT email, username, username_normalized, status FROM users WHERE username_normalized = ?",
+    "no-email-applicant",
+  )!
+  assert.ok(account, "the account exists")
+  assert.match(account.email, /@no-email\.invalid$/)
+  assert.equal(account.status, "invited")
+
+  // Accept the invitation, then sign in with the name (any case / spacing).
+  const invitationToken = String(approve.json.invitation.url).replace(/^\/invite\//, "")
+  const activate = await api("POST", `/api/auth/invitation/${invitationToken}`, { body: { password: "NameLogin!2026dd" } })
+  assert.equal(activate.status, 200, JSON.stringify(activate.json))
+
+  const byExactName = await api("POST", "/api/auth/login", {
+    body: { identifier: "No Email Applicant", password: "NameLogin!2026dd" },
+  })
+  assert.equal(byExactName.status, 200, `signing in by name must work: ${JSON.stringify(byExactName.json)}`)
+  assert.equal(byExactName.json.user.displayName, "No Email Applicant")
+
+  // The lookup is forgiving about case and spacing.
+  const byLooseName = await api("POST", "/api/auth/login", {
+    body: { identifier: "  no email   applicant ", password: "NameLogin!2026dd" },
+  })
+  assert.equal(byLooseName.status, 200, "case/spacing must not matter")
 })
 
 test("rejecting an already-approved application is refused and changes nothing", async () => {

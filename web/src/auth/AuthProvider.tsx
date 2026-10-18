@@ -51,8 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refresh().finally(() => setLoading(false))
   }, [refresh])
 
-  const login = useCallback(async (email: string, password: string) => {
-    const result = await api.post<{ user: SessionUser }>("/auth/login", { email, password })
+  // `identifier` is an email address or, for members who joined without one, the
+  // username derived from their full name (see server `services/usernames.ts`).
+  const login = useCallback(async (identifier: string, password: string) => {
+    const result = await api.post<{ user: SessionUser }>("/auth/login", { identifier, password })
     setUser(result.user)
     return result.user
   }, [])

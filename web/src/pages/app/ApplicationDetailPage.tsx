@@ -130,7 +130,7 @@ interface ApprovedMember {
 interface DecisionResponse {
   application?: ApplicationDetail
   member?: ApprovedMember | null
-  invitation?: { url: string; expiresAt?: string } | null
+  invitation?: { url: string; expiresAt?: string; username?: string } | null
   duplicate?: boolean
 }
 
@@ -431,9 +431,15 @@ export function ApplicationDetailPage() {
                     {copied ? "Copied" : "Copy link"}
                   </Button>
                 </div>
-                {invitation?.expiresAt ? (
-                  <p className="muted text-xs">This link expires {formatDateTime(invitation.expiresAt)}.</p>
-                ) : null}
+                <p className="muted text-xs">
+                  {invitation?.username ? (
+                    <>
+                      The applicant signs in with the username <strong className="font-medium">{invitation.username}</strong>{" "}
+                      (they left the email question blank).{" "}
+                    </>
+                  ) : null}
+                  {invitation?.expiresAt ? <>This link expires {formatDateTime(invitation.expiresAt)}.</> : null}
+                </p>
               </div>
             ) : (
               <div className="flex items-start gap-2 rounded-xl border border-gold-400/40 bg-gold-400/10 px-4 py-3 text-sm">

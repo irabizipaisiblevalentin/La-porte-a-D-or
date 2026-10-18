@@ -19,6 +19,7 @@ import { isoPlusMs, isExpired, nowIso } from "../lib/time.js"
 import { authRateLimit } from "../middleware/rate-limit.js"
 import { requireAuth } from "../middleware/auth.js"
 import { notifyMany } from "../services/notifications.js"
+import { isPlaceholderEmail, normalizeUsername } from "../services/usernames.js"
 
 export const authRouter: Router = Router()
 
@@ -26,6 +27,8 @@ interface UserAuthRow {
   id: string
   email: string
   email_normalized: string
+  username: string | null
+  username_normalized: string | null
   password_hash: string | null
   display_name: string
   status: string
@@ -35,14 +38,37 @@ interface UserAuthRow {
 }
 
 authRouter.post("/login", authRateLimit(), (req, res) => {
+  // `identifier` may be an email address OR a username (for members who applied
+  // without an email). `email` is still accepted for older clients.
   const input = parse(z.object({
-    email: z.string().trim().min(1, "Enter your email address."),
+    identifier: z.string().trim().min(1).optional(),
+    email: z.string().trim().min(1).optional(),
     password: z.string().min(1, "Enter your password."),
+  }).refine((value) => Boolean(value.identifier || value.email), {
+    message: "Enter your email address or username.",
+    path: ["identifier"],
   }), req.body)
 
-  const user = one<UserAuthRow>("SELECT * FROM users WHERE email_normalized = ?", input.email.toLowerCase())
+  const rawIdentifier = (input.identifier ?? input.email ?? "").trim()
+  const user = one<UserAuthRow>(
+    `SELECT * FROM users
+      WHERE email_normalized = ?
+         OR (username_normalized IS NOT NULL AND username_normalized = ?)
+      LIMIT 1`,
+    rawIdentifier.toLowerCase(), normalizeUsername(rawIdentifier),
+  )
 
-  if (!user) throw unauthorized("Email or password is incorrect.")
+  if (!user) throw unauthorized("Email/username or password is incorrect.")
+  if (user.locked_until && !isExpired(user.locked_until)) {
+    throw forbidden("This account is temporarily locked after too many failed attempts. Try again shortly.")
+  }
+  if (user.status !== "active") {
+    throw forbidden("This account is not active. Contact a choir administrator.")
+  }
+  if (!verifyPassword(input.password, user.password_hash)) {
+    registerFailedLogin(user)
+    throw unauthorized("Email/username or password is incorrect.")
+  }
   if (user.locked_until && !isExpired(user.locked_until)) {
     throw forbidden("This account is temporarily locked after too many failed attempts. Try again shortly.")
   }
@@ -203,7 +229,17 @@ authRouter.post("/password/reset", authRateLimit(), (req, res) => {
 authRouter.get("/invitation/:token", (req, res) => {
   const invitation = loadInvitation(String(req.params.token))
   if (!invitation) throw badRequest("This invitation link is invalid or has expired.")
-  res.json({ invitation: { email: invitation.email, fullName: invitation.display_name } })
+  // A name-only account carries a placeholder email; the invite screen shows the
+  // username instead, since that is what the applicant signs in with.
+  const hasEmail = !isPlaceholderEmail(invitation.email)
+  res.json({
+    invitation: {
+      email: hasEmail ? invitation.email : null,
+      username: invitation.username,
+      fullName: invitation.display_name,
+      hasEmail,
+    },
+  })
 })
 
 authRouter.post("/invitation/:token", authRateLimit(), (req, res) => {
@@ -234,6 +270,7 @@ interface InvitationRow {
   id: string
   user_id: string
   email: string
+  username: string | null
   display_name: string
   expires_at: string
   used_at: string | null
@@ -241,7 +278,7 @@ interface InvitationRow {
 
 function loadInvitation(rawToken: string): InvitationRow | null {
   const row = one<InvitationRow>(
-    `SELECT ai.id, ai.user_id, ai.email, u.display_name, ai.expires_at, ai.used_at
+    `SELECT ai.id, ai.user_id, ai.email, u.username, u.display_name, ai.expires_at, ai.used_at
        FROM account_invitations ai JOIN users u ON u.id = ai.user_id
       WHERE ai.token_hash = ?`,
     hashToken(rawToken),

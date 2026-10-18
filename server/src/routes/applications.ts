@@ -15,6 +15,7 @@ import { applicantProfileFromAnswers } from "../services/application-profile.js"
 import { getGroupById, getGroupByKey, type GroupRow } from "../services/groups.js"
 import { createMemberRecord, getMemberDetail } from "../services/members.js"
 import { groupAdminUserIds, notifyMany } from "../services/notifications.js"
+import { cleanDisplayName, normalizeUsername, placeholderEmail } from "../services/usernames.js"
 import { saveUpload } from "../services/uploads.js"
 
 export const applicationsRouter: Router = Router()
@@ -370,6 +371,25 @@ function effectiveGroupId(application: ApplicationRow): string | null {
   return application.assigned_group_id ?? application.requested_group_id
 }
 
+/**
+ * Picks a unique sign-in name from the applicant's full name — "Irabizi Valentin"
+ * first, then "Irabizi Valentin 2" and so on when that name is already taken.
+ * Used for every approved applicant, and is the only way to sign in when they
+ * left the form's (optional) email question blank.
+ */
+function allocateUsername(fullName: string): { username: string; normalized: string } {
+  const base = cleanDisplayName(fullName) || "Member"
+  for (let suffix = 1; suffix <= 99; suffix += 1) {
+    const username = suffix === 1 ? base : `${base} ${suffix}`
+    const normalized = normalizeUsername(username)
+    if (!normalized) continue
+    const taken = one<{ id: string }>("SELECT id FROM users WHERE username_normalized = ?", normalized)
+    if (!taken) return { username, normalized }
+  }
+  const fallback = `${normalizeUsername(base) || "member"}-${Date.now().toString(36)}`
+  return { username: fallback, normalized: fallback }
+}
+
 // ---------------------------------------------------------------------------
 // GET / — list with filters
 // ---------------------------------------------------------------------------
@@ -693,7 +713,7 @@ const decisionSchema = z.object({
 })
 
 type ApprovalOutcome =
-  | { created: true; memberId: string; userId: string; rawToken: string; expiresAt: string }
+  | { created: true; memberId: string; userId: string; rawToken: string; expiresAt: string; username: string }
   | { created: false; memberId: string; userId: string | null }
 
 applicationsRouter.post("/:id/decision", requireAuth, requirePermission("application.decide"), (req, res) => {
@@ -742,10 +762,6 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
   if (!group) throw badRequest("That group does not exist.", { fields: { assignedGroupId: "Unknown group." } })
   assertGroupAccess(req.auth!, "application.decide", targetGroupId)
 
-  if (!application.email || application.email.trim() === "") {
-    throw badRequest("An email address is required before this application can be approved.", { fields: { email: "Required to create the account." } })
-  }
-
   const outcome = transaction<ApprovalOutcome>(() => {
     // Re-read inside the transaction and stop if a member was already created:
     // approving twice must never create a second member or account.
@@ -779,11 +795,17 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
           ip: req.ip,
         })
       }
-      return { created: false, memberId: fresh.member_id, userId: linked?.user_id ?? null }
+      return { created: false as const, memberId: fresh.member_id, userId: linked?.user_id ?? null }
     }
 
     const timestamp = nowIso()
-    const email = fresh.email?.trim() ?? ""
+    // The email is optional on the form. An applicant who left it blank still
+    // gets an account: they sign in with a username derived from their full name.
+    const applicantEmail = fresh.email?.trim() || null
+    const { username, normalized: usernameNormalized } = allocateUsername(fresh.full_name)
+    // The users table requires a unique, non-null email, so a name-only account
+    // stores a reserved, non-routable placeholder that is never emailed.
+    const email = applicantEmail ?? placeholderEmail(usernameNormalized)
     const emailNormalized = email.toLowerCase()
     const existingUser = one<{ id: string }>("SELECT id FROM users WHERE email_normalized = ?", emailNormalized)
     if (existingUser) {
@@ -797,10 +819,10 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     // Create the invited account: no password yet, activated only by the invitation.
     const userId = id()
     run(
-      `INSERT INTO users (id, email, email_normalized, password_hash, display_name, status, must_change_password,
-                          failed_login_count, last_login_at, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, ?, 'invited', 0, 0, NULL, ?, ?)`,
-      userId, email, emailNormalized, fresh.full_name, timestamp, timestamp,
+      `INSERT INTO users (id, email, email_normalized, username, username_normalized, password_hash, display_name,
+                          status, must_change_password, failed_login_count, last_login_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, 'invited', 0, 0, NULL, ?, ?)`,
+      userId, email, emailNormalized, username, usernameNormalized, fresh.full_name, timestamp, timestamp,
     )
     run(
       "INSERT INTO user_roles (user_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)",
@@ -819,7 +841,7 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     run(
       `UPDATE member_contacts SET email = ?, phone = ?, address = ?, city = ?, region = ?, updated_at = ?
         WHERE member_id = ?`,
-      email, fresh.phone ?? null, profile.address ?? null, profile.city ?? null,
+      applicantEmail, fresh.phone ?? null, profile.address ?? null, profile.city ?? null,
       profile.region ?? null, timestamp, created.id,
     )
 
@@ -869,19 +891,20 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     recordAudit({
       actorId: req.auth!.id, actorName: req.auth!.displayName,
       action: "application.approve", entityType: "application", entityId: fresh.id,
-      summary: `Application approved for ${fresh.full_name} (${group.name}); member ${created.memberNo} and invitation created`,
+      summary: `Application approved for ${fresh.full_name} (${group.name}); member ${created.memberNo} and invitation created${applicantEmail ? "" : ` (sign-in name: ${username})`}`,
       detail: { memberId: created.id, memberNo: created.memberNo, userId, groupId: targetGroupId },
       ip: req.ip,
     })
 
-    return { created: true, memberId: created.id, userId, rawToken, expiresAt }
+    return { created: true as const, memberId: created.id, userId, rawToken, expiresAt, username }
   })
 
   if (outcome.created) {
     res.status(201).json({
       member: getMemberDetail(outcome.memberId, { includeSensitive: true }),
       user: loadAuthUser(outcome.userId),
-      invitation: { url: `/invite/${outcome.rawToken}`, expiresAt: outcome.expiresAt },
+      // `username` is how the applicant signs in when they gave no email.
+      invitation: { url: `/invite/${outcome.rawToken}`, expiresAt: outcome.expiresAt, username: outcome.username },
     })
     return
   }

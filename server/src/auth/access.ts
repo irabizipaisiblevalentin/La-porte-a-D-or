@@ -4,6 +4,8 @@ import type { PermissionScope } from "./permissions.js"
 export interface AuthUser {
   id: string
   email: string
+  /** Sign-in name for accounts without an email (else null); see services/usernames. */
+  username: string | null
   displayName: string
   status: string
   mustChangePassword: boolean
@@ -20,6 +22,7 @@ export interface AuthUser {
 interface UserRow {
   id: string
   email: string
+  username: string | null
   display_name: string
   status: string
   must_change_password: number
@@ -38,7 +41,7 @@ interface GrantRow {
 /** Loads the full authorization context for a user from the database. */
 export function loadAuthUser(userId: string): AuthUser | null {
   const row = one<UserRow>(
-    `SELECT u.id, u.email, u.display_name, u.status, u.must_change_password, u.avatar_path,
+    `SELECT u.id, u.email, u.username, u.display_name, u.status, u.must_change_password, u.avatar_path,
             m.id AS member_id, m.member_no, g.id AS group_id, g.name AS group_name
        FROM users u
        LEFT JOIN members m ON m.user_id = u.id
@@ -73,6 +76,7 @@ export function loadAuthUser(userId: string): AuthUser | null {
   return {
     id: row.id,
     email: row.email,
+    username: row.username,
     displayName: row.display_name,
     status: row.status,
     mustChangePassword: row.must_change_password === 1,
