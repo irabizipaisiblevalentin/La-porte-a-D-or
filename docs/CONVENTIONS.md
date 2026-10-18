@@ -52,7 +52,7 @@ Helpers available:
 `global | senior | junior | members | own`. A `global` grant satisfies every scope. `own` only satisfies own-record checks.
 
 ### Roles
-`chairman` (all global — the founder and supreme administrator who controls all three groups), `junior_admin` (junior-scoped records + shared music/goals/events/training/announcements), `members_admin` (members-scoped), `senior_singer`, `junior_singer`, `support_member` (own + shared read). Every signed-in member also has `messages.send`; only the Chairman has `messages.read`/`messages.reply`.
+`chairman` (all global except `application.decide` — the founder and supreme administrator, who sees all three groups but leaves applications to each group's own administrator), `junior_admin` (junior-scoped records + shared music/goals/events/training/announcements), `members_admin` (members-scoped), `senior_singer`, `junior_singer`, `support_member` (own + shared read). Every signed-in member also has `messages.send`; only the Chairman has `messages.read`/`messages.reply`.
 
 ### Audit
 Call `recordAudit` for every administrative mutation: approvals, group changes, account creation/deactivation, role changes, attendance changes, discipline changes, song changes, announcement creation, event changes, settings changes. Never log passwords, tokens or guardian/emergency data.

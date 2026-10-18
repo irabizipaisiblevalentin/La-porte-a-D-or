@@ -27,6 +27,7 @@ delete process.env.SESSION_COOKIE_SECURE
 process.env.ALLOW_DEFAULT_ACCOUNTS = "1"
 process.env.CHAIRMAN_PASSWORD = "ChairmanDecision!2026aa"
 process.env.SENIOR_ADMIN_PASSWORD = "SeniorDecision!2026bb"
+process.env.JUNIOR_ADMIN_PASSWORD = "JuniorDecision!2026cc"
 
 const { migrate, one, run } = await import("../../src/db/index.js")
 const { seed } = await import("../../src/db/seed.js")
@@ -37,6 +38,7 @@ const { config } = await import("../../src/config.js")
 const COOKIE = config.session.cookieName
 const CHAIRMAN_EMAIL = "chairman@laportedor.local"
 const SENIOR_EMAIL = "senior.admin@laportedor.local"
+const JUNIOR_EMAIL = "junior.admin@laportedor.local"
 
 let server: Server
 let base: string
@@ -203,12 +205,12 @@ test("rejecting an already-approved application is refused and changes nothing",
 })
 
 test("re-approving repairs an application whose status drifted from its member", async () => {
-  const chairman = await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!)
+  const junior = await login(JUNIOR_EMAIL, process.env.JUNIOR_ADMIN_PASSWORD!)
   const email = "decision.repair@example.com"
   const appId = await submitApplication("Decision Repair", email, "Junior")
 
   const approve = await api("POST", `/api/applications/${appId}/decision`, {
-    cookie: chairman, body: { decision: "approve", note: "Approved by Chairman" },
+    cookie: junior, body: { decision: "approve", note: "Approved by the Junior Administrator" },
   })
   assert.equal(approve.status, 201)
   assert.equal(applicationStatus(appId), "approved")
@@ -221,7 +223,7 @@ test("re-approving repairs an application whose status drifted from its member",
   assert.equal(applicationStatus(appId), "rejected")
 
   const reapprove = await api("POST", `/api/applications/${appId}/decision`, {
-    cookie: chairman, body: { decision: "approve", note: "Re-confirmed" },
+    cookie: junior, body: { decision: "approve", note: "Re-confirmed" },
   })
   assert.equal(reapprove.status, 200, JSON.stringify(reapprove.json))
   assert.equal(reapprove.json.duplicate, true, "must not mint a second member")
@@ -249,4 +251,27 @@ test("rejecting a pending application still works", async () => {
   assert.equal(reject.status, 200, JSON.stringify(reject.json))
   assert.equal(applicationStatus(appId), "rejected")
   assert.equal(memberCountFor(email), 0, "rejecting must never create a member")
+})
+
+test("the Chairman oversees every application but cannot approve or reject one", async () => {
+  const chairman = await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!)
+  const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
+  const appId = await submitApplication("Chairman Oversight", "oversight@example.com", "Senior")
+
+  // The Chairman can READ any application (oversight)...
+  const read = await api("GET", `/api/applications/${appId}`, { cookie: chairman })
+  assert.equal(read.status, 200, "the Chairman must be able to see every application")
+
+  // ...but only the group's own administrator may decide.
+  const byChairman = await api("POST", `/api/applications/${appId}/decision`, {
+    cookie: chairman, body: { decision: "approve" },
+  })
+  assert.equal(byChairman.status, 403, `the Chairman must not decide: ${JSON.stringify(byChairman.json)}`)
+  assert.equal(applicationStatus(appId), "pending", "a refused decision changes nothing")
+
+  const bySenior = await api("POST", `/api/applications/${appId}/decision`, {
+    cookie: senior, body: { decision: "approve" },
+  })
+  assert.equal(bySenior.status, 201, JSON.stringify(bySenior.json))
+  assert.equal(applicationStatus(appId), "approved")
 })

@@ -120,7 +120,7 @@ Group responsibilities (fixed, three official groups):
 | Senior | `senior_leader` (Senior Administrator) |
 | Junior | `junior_admin` (Junior Administrator) |
 | Members/Support | `members_admin` (Members Administrator) |
-| — all three | `chairman` (supreme overseer) |
+| — all three | `chairman` (sees every group; does not decide applications) |
 
 ## Google Form → application → automatic credentials
 

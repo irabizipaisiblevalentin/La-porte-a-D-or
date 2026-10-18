@@ -45,10 +45,15 @@ test("every granted permission exists and every grant scope is allowed", () => {
   }
 })
 
-test("the Chairman holds every permission at global scope", () => {
+test("the Chairman holds every permission at global scope except deciding applications", () => {
   const chairman = ROLES.find((role) => role.key === "chairman")!
-  assert.equal(chairman.grants.length, PERMISSIONS.length)
+  const keys = new Set(chairman.grants.map((grant) => grant.key))
+  assert.equal(keys.has("application.decide"), false, "the Chairman must not approve/reject applications")
   for (const grant of chairman.grants) assert.equal(grant.scope, "global")
+  for (const permission of PERMISSIONS) {
+    if (permission.key === "application.decide") continue
+    assert.ok(keys.has(permission.key), `the Chairman should still hold ${permission.key}`)
+  }
 })
 
 test("junior_admin is scoped to the junior group and cannot reach settings", () => {

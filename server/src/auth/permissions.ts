@@ -82,8 +82,12 @@ export const ROLES: RoleDef[] = [
   {
     key: "chairman",
     name: "Chairman",
-    description: "Chairman of the choir — founder and supreme overseer. Sees everything happening across the Senior, Junior and Support Member groups and can act anywhere, while each group is led day-to-day by its own administrator. Also heads the founders of the choir. Every important action is audited.",
-    grants: PERMISSIONS.map((p) => g(p.key, "global")),
+    description: "Chairman of the choir — founder and supreme overseer. Sees every group's applications, members and day-to-day operations, but does not approve or reject applications: each group is led by its own administrator, who decides that group's requests. Also heads the founders of the choir. Every important action is audited.",
+    // Deliberately everything EXCEPT application.decide: the Chairman oversees
+    // every group, but only a group's own administrator approves its applicants.
+    grants: PERMISSIONS
+      .filter((p) => p.key !== "application.decide")
+      .map((p) => g(p.key, "global")),
   },
   {
     key: "senior_leader",

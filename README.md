@@ -272,7 +272,7 @@ support-member records, even by guessing an id (the API returns 403/404).
 
 | Role | Scope | Summary |
 | --- | --- | --- |
-| `chairman` | global | **Chairman of the choir** — the founder and supreme administrator. Controls **all three groups**, plus settings, integrations and audit. |
+| `chairman` | global | **Chairman of the choir** — the founder and supreme administrator. Sees **all three groups** plus settings, integrations and audit. He does **not** approve/reject applications: each group's own administrator decides its applicants. |
 | `junior_admin` | junior + shared | Junior applications, members, attendance, discipline, progress; shared music/goals/events/training/announcements. |
 | `members_admin` | members + shared | Support-member applications, profiles, attendance, training, events, reports; shared read of the rest. |
 | `senior_singer` | own + shared read | Own profile/attendance, shared music, events, training, announcements. |

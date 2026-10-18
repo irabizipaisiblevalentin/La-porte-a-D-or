@@ -63,30 +63,20 @@ function adminRoleForGroup(groupId: string | null | undefined): string | null {
 }
 
 /**
- * Active administrators who should hear about an event in `groupId`: the Chairman
- * (who oversees all three groups) plus the group's own administrator, if any.
- * De-duplicated, so the Chairman is never notified twice.
+ * Active administrator(s) who own a group's applications: that group's own
+ * administrator, and nobody else. The Chairman is deliberately NOT included —
+ * he oversees every group from his dashboard, while each group's administrator
+ * handles (and decides) that group's requests. Returns [] when the group is
+ * unknown or has no active administrator.
  */
-export function adminUserIdsForGroup(groupId: string | null | undefined): string[] {
-  const ids = new Set<string>()
-  const chairman = all<{ id: string }>(
+export function groupAdminUserIds(groupId: string | null | undefined): string[] {
+  const roleKey = adminRoleForGroup(groupId)
+  if (!roleKey) return []
+  return all<{ id: string }>(
     `SELECT u.id FROM users u
        JOIN user_roles ur ON ur.user_id = u.id
        JOIN roles r ON r.id = ur.role_id
-      WHERE r.key = 'chairman' AND u.status = 'active'`,
-  )
-  for (const row of chairman) ids.add(row.id)
-
-  const roleKey = adminRoleForGroup(groupId)
-  if (roleKey) {
-    const groupAdmins = all<{ id: string }>(
-      `SELECT u.id FROM users u
-         JOIN user_roles ur ON ur.user_id = u.id
-         JOIN roles r ON r.id = ur.role_id
-        WHERE r.key = ? AND u.status = 'active'`,
-      roleKey,
-    )
-    for (const row of groupAdmins) ids.add(row.id)
-  }
-  return [...ids]
+      WHERE r.key = ? AND u.status = 'active'`,
+    roleKey,
+  ).map((row) => row.id)
 }

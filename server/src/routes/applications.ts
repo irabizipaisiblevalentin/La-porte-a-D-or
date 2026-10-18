@@ -14,7 +14,7 @@ import { documentUpload } from "../middleware/upload.js"
 import { applicantProfileFromAnswers } from "../services/application-profile.js"
 import { getGroupById, getGroupByKey, type GroupRow } from "../services/groups.js"
 import { createMemberRecord, getMemberDetail } from "../services/members.js"
-import { adminUserIdsForGroup, notifyMany } from "../services/notifications.js"
+import { groupAdminUserIds, notifyMany } from "../services/notifications.js"
 import { saveUpload } from "../services/uploads.js"
 
 export const applicationsRouter: Router = Router()
@@ -346,9 +346,13 @@ function contactFromAnswers(answers: NormalizedAnswer[]): { email: string | null
   return { email, phone }
 }
 
-/** Notifies the Chairman and the group's own administrator that an application arrived. */
+/**
+ * Notifies the group's own administrator that an application arrived. Only that
+ * group's administrator is told — the Chairman sees the record on his dashboard
+ * but is not pinged for every application.
+ */
 function notifyApplicationIntake(applicationId: string, fullName: string, group: GroupRow | undefined, groupId: string | null): void {
-  const recipients = adminUserIdsForGroup(groupId)
+  const recipients = groupAdminUserIds(groupId)
   if (recipients.length === 0) return
   const where = group ? `for the ${group.name} group` : "with no group selected — please assign one"
   notifyMany(
