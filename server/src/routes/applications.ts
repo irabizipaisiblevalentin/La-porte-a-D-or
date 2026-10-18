@@ -420,19 +420,22 @@ applicationsRouter.get("/", requireAuth, requirePermission("application.read"), 
 // POST /webhook — Google Sheets / Apps Script intake (no auth; signed)
 // ---------------------------------------------------------------------------
 
+// `.nullish()` (not just `.optional()`): the Google Form script sends an explicit
+// `null` for contact fields the applicant left blank, which must be treated as
+// "absent" rather than rejected. A 400 here silently drops a real application.
 const webhookSchema = z.object({
-  externalId: z.string().trim().min(1).optional(),
-  responseId: z.string().trim().min(1).optional(),
-  id: z.string().trim().min(1).optional(),
-  fullName: z.string().trim().min(1).optional(),
-  name: z.string().trim().min(1).optional(),
-  email: z.string().trim().max(200).optional(),
-  phone: z.string().trim().max(40).optional(),
-  groupId: z.string().trim().optional(),
-  group: z.string().trim().optional(),
+  externalId: z.string().trim().min(1).nullish(),
+  responseId: z.string().trim().min(1).nullish(),
+  id: z.string().trim().min(1).nullish(),
+  fullName: z.string().trim().min(1).nullish(),
+  name: z.string().trim().min(1).nullish(),
+  email: z.string().trim().max(200).nullish(),
+  phone: z.string().trim().max(40).nullish(),
+  groupId: z.string().trim().nullish(),
+  group: z.string().trim().nullish(),
   answers: z.unknown().optional(),
   secret: z.string().optional(),
-  submittedAt: z.string().trim().max(40).optional(),
+  submittedAt: z.string().trim().max(40).nullish(),
 }).passthrough()
 
 /**

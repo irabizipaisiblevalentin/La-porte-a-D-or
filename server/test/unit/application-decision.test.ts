@@ -117,6 +117,63 @@ after(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
+test("webhook accepts a form submission whose optional email is null", async () => {
+  // Regression: the Google Form script sends an explicit `null` (not a missing
+  // key) for every contact field the applicant left blank, plus array answers
+  // for checkbox/file-upload questions. The webhook schema rejected the null
+  // with 400 before the handler ran, silently dropping real applications.
+  const res = await api("POST", "/api/applications/webhook", {
+    body: {
+      externalId: `regression-null-contact-${Date.now()}`,
+      submittedAt: new Date().toISOString(),
+      fullName: "Regression Null Contact",
+      email: null,
+      phone: "0792785573",
+      group: "grp_junior",
+      answers: [
+        { question: "Confirm", answer: ["I have read and understood the information above."] },
+        { question: "Which choir group are you applying for?", answer: "Junior" },
+        { question: "What is your full name?", answer: "Regression Null Contact" },
+        { question: "Please upload a recent photo of yourself", answer: ["1ztcly9hYzXXz8yFf9q5Hx2_cc9wIPoa_"] },
+        { question: "Email Address", answer: "" },
+        { question: "Phone Number", answer: "0792785573" },
+      ],
+    },
+  })
+  assert.equal(res.status, 201, `null contact fields must not be rejected: ${JSON.stringify(res.json)}`)
+
+  const row = one<{ email: string | null; phone: string | null; status: string }>(
+    "SELECT email, phone, status FROM applications WHERE id = ?",
+    res.json.applicationId as string,
+  )!
+  assert.equal(row.email, null, "a blank email is stored as null, not rejected")
+  assert.equal(row.phone, "0792785573")
+  assert.equal(row.status, "pending")
+})
+
+test("approving an application without an email is refused with a clear error", async () => {
+  const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
+  const submitted = await api("POST", "/api/applications/webhook", {
+    body: {
+      externalId: `regression-no-email-${Date.now()}`,
+      submittedAt: new Date().toISOString(),
+      fullName: "No Email Applicant",
+      email: null,
+      phone: "0792785574",
+      group: "grp_senior",
+      answers: [{ question: "What is your full name?", answer: "No Email Applicant" }],
+    },
+  })
+  assert.equal(submitted.status, 201)
+
+  const approve = await api("POST", `/api/applications/${submitted.json.applicationId}/decision`, {
+    cookie: senior, body: { decision: "approve" },
+  })
+  assert.equal(approve.status, 400, "an account needs an email; approval must say so, not 500")
+  assert.equal(approve.json.error.details.fields.email, "Required to create the account.")
+  assert.equal(memberCountFor(""), 0, "no member is created without an email")
+})
+
 test("rejecting an already-approved application is refused and changes nothing", async () => {
   const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
   const email = "decision.reject@example.com"
