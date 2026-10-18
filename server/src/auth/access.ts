@@ -108,7 +108,11 @@ export function can(user: AuthUser | null | undefined, key: string, scope?: Perm
 export function canActOnMember(user: AuthUser, key: string, member: { id: string; group_id: string } | null | undefined): boolean {
   if (!member) return can(user, key, "global")
   if (can(user, key, "global")) return true
-  if (can(user, key, member.group_id as PermissionScope)) return true
+  // `member.group_id` is a group id (`grp_junior`); permission scopes are the
+  // short keys (`junior`). Translating between them is what lets a group
+  // administrator open, edit and photograph their own group's members.
+  const scope = groupScope(member.group_id)
+  if (scope && can(user, key, scope)) return true
   return can(user, key, "own") && user.memberId === member.id
 }
 

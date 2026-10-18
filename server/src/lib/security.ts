@@ -1,7 +1,30 @@
-import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto"
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from "node:crypto"
 
 export function id(): string {
   return randomUUID()
+}
+
+/**
+ * Human-readable passwords an administrator reads aloud or copies for a member
+ * whose account was created automatically at approval.
+ *
+ * Two everyday words plus digits and a symbol, e.g. `Ingoma-4821-Umwuka`. Safe
+ * to transcribe by hand (no ambiguous characters) and always satisfies
+ * `validatePasswordStrength` (upper + lower + digit, >= 10 characters, no
+ * dictionary words from the blocklist).
+ */
+const PASSWORD_WORDS = [
+  "Ingoma", "Umurava", "Amahoro", "Ubwenge", "Urukundo", "Intwari",
+  "Umucyo", "Ishema", "Agaciro", "Icyerekezo", "Umwuka", "Iterambere",
+  "Kigali", "Abanyamuziki", "Ijwi", "Inzogera", "Ubuhamya", "Umusaruro",
+]
+
+export function generatePassword(): string {
+  const first = PASSWORD_WORDS[randomInt(PASSWORD_WORDS.length)]
+  const second = PASSWORD_WORDS[randomInt(PASSWORD_WORDS.length)].toLowerCase()
+  const digits = String(randomInt(1000, 10000))
+  const symbol = "!@#$%*+-"[randomInt(8)]
+  return `${first}${symbol}${digits}-${second}`
 }
 
 /** URL-safe opaque token for sessions, invitations and setup links. */

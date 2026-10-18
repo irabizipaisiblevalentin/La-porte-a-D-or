@@ -1,14 +1,13 @@
 import { Router, type Request } from "express"
 import { z } from "zod"
 import { can, groupScope, loadAuthUser, type AuthUser } from "../auth/access.js"
-import { config } from "../config.js"
 import { all, one, run, transaction } from "../db/index.js"
 import { recordAudit } from "../lib/audit.js"
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
-import { constantTimeEqual, hashToken, hmacSha256Hex, id, token } from "../lib/security.js"
+import { constantTimeEqual, generatePassword, hashPassword, hmacSha256Hex, id } from "../lib/security.js"
 import { decryptSecret } from "../lib/secrets-box.js"
-import { isoPlusMs, nowIso } from "../lib/time.js"
+import { nowIso } from "../lib/time.js"
 import { assertGroupAccess, permittedGroupIds, requireAuth, requirePermission } from "../middleware/auth.js"
 import { documentUpload } from "../middleware/upload.js"
 import { applicantProfileFromAnswers } from "../services/application-profile.js"
@@ -713,7 +712,7 @@ const decisionSchema = z.object({
 })
 
 type ApprovalOutcome =
-  | { created: true; memberId: string; userId: string; rawToken: string; expiresAt: string; username: string }
+  | { created: true; memberId: string; userId: string; username: string; initialPassword: string }
   | { created: false; memberId: string; userId: string | null }
 
 applicationsRouter.post("/:id/decision", requireAuth, requirePermission("application.decide"), (req, res) => {
@@ -816,13 +815,18 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     // section, address, occupation, etc.) into the member record.
     const profile = applicantProfileFromAnswers(listAnswers(fresh.id))
 
-    // Create the invited account: no password yet, activated only by the invitation.
+    // Create the account with credentials generated on the spot, so the
+    // administrator can hand a username and password over immediately (email
+    // delivery is not configured). The member picks their own password the
+    // first time they sign in.
     const userId = id()
+    const initialPassword = generatePassword()
     run(
       `INSERT INTO users (id, email, email_normalized, username, username_normalized, password_hash, display_name,
                           status, must_change_password, failed_login_count, last_login_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, 'invited', 0, 0, NULL, ?, ?)`,
-      userId, email, emailNormalized, username, usernameNormalized, fresh.full_name, timestamp, timestamp,
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, 0, NULL, ?, ?)`,
+      userId, email, emailNormalized, username, usernameNormalized, hashPassword(initialPassword),
+      fresh.full_name, timestamp, timestamp,
     )
     run(
       "INSERT INTO user_roles (user_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?)",
@@ -868,14 +872,6 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
       )
     }
 
-    const rawToken = token(32)
-    const expiresAt = isoPlusMs(config.security.invitationTtlMs)
-    run(
-      `INSERT INTO account_invitations (id, user_id, email, token_hash, invited_by, expires_at, used_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-      id(), userId, email, hashToken(rawToken), req.auth!.id, expiresAt, timestamp,
-    )
-
     run(
       `UPDATE applications SET status = 'approved', assigned_group_id = ?, member_id = ?, reviewed_by = ?,
                                 reviewed_at = ?, decision_note = ?, updated_at = ?
@@ -891,20 +887,20 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     recordAudit({
       actorId: req.auth!.id, actorName: req.auth!.displayName,
       action: "application.approve", entityType: "application", entityId: fresh.id,
-      summary: `Application approved for ${fresh.full_name} (${group.name}); member ${created.memberNo} and invitation created${applicantEmail ? "" : ` (sign-in name: ${username})`}`,
-      detail: { memberId: created.id, memberNo: created.memberNo, userId, groupId: targetGroupId },
+      summary: `Application approved for ${fresh.full_name} (${group.name}); member ${created.memberNo} created with account ${username}`,
+      detail: { memberId: created.id, memberNo: created.memberNo, userId, groupId: targetGroupId, username },
       ip: req.ip,
     })
 
-    return { created: true as const, memberId: created.id, userId, rawToken, expiresAt, username }
+    return { created: true as const, memberId: created.id, userId, username, initialPassword }
   })
 
   if (outcome.created) {
     res.status(201).json({
       member: getMemberDetail(outcome.memberId, { includeSensitive: true }),
       user: loadAuthUser(outcome.userId),
-      // `username` is how the applicant signs in when they gave no email.
-      invitation: { url: `/invite/${outcome.rawToken}`, expiresAt: outcome.expiresAt, username: outcome.username },
+      // Credentials generated at approval. The password is shown once, here.
+      credentials: { username: outcome.username, password: outcome.initialPassword },
     })
     return
   }

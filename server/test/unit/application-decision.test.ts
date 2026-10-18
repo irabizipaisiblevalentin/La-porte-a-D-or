@@ -34,6 +34,7 @@ const { seed } = await import("../../src/db/seed.js")
 const { seedDefaultAccounts, defaultAccounts } = await import("../../src/db/seed-admins.js")
 const { createApp } = await import("../../src/app.js")
 const { config } = await import("../../src/config.js")
+const { validatePasswordStrength } = await import("../../src/lib/security.js")
 
 const COOKIE = config.session.cookieName
 const CHAIRMAN_EMAIL = "chairman@laportedor.local"
@@ -174,34 +175,64 @@ test("approving an application without an email creates a name-based account", a
   })
   assert.equal(approve.status, 201, `a blank email must still be approvable: ${JSON.stringify(approve.json)}`)
   assert.ok(approve.json.member?.member?.member_no, "a member record is created")
-  assert.ok(approve.json.invitation?.url, "an invitation is created")
-  assert.equal(approve.json.invitation.username, "No Email Applicant", "the sign-in name comes from the full name")
 
-  // The stored email is a reserved placeholder, never a real address.
-  const account = one<{ email: string; username: string; username_normalized: string; status: string }>(
-    "SELECT email, username, username_normalized, status FROM users WHERE username_normalized = ?",
+  // A username AND a password are generated on the spot and handed back once.
+  const credentials = approve.json.credentials as { username: string; password: string }
+  assert.ok(credentials, "credentials are returned")
+  assert.equal(credentials.username, "No Email Applicant", "the sign-in name comes from the full name")
+  assert.ok(validatePasswordStrength(credentials.password).ok, `generated password must be usable: ${credentials.password}`)
+  assert.equal(credentials.password.length >= 10, true)
+
+  // The stored email is a reserved placeholder, never a real address, and the
+  // account is immediately usable with the generated password.
+  const account = one<{
+    email: string; username: string; username_normalized: string; status: string; must_change_password: number
+  }>(
+    `SELECT email, username, username_normalized, status, must_change_password
+       FROM users WHERE username_normalized = ?`,
     "no-email-applicant",
   )!
   assert.ok(account, "the account exists")
   assert.match(account.email, /@no-email\.invalid$/)
-  assert.equal(account.status, "invited")
-
-  // Accept the invitation, then sign in with the name (any case / spacing).
-  const invitationToken = String(approve.json.invitation.url).replace(/^\/invite\//, "")
-  const activate = await api("POST", `/api/auth/invitation/${invitationToken}`, { body: { password: "NameLogin!2026dd" } })
-  assert.equal(activate.status, 200, JSON.stringify(activate.json))
+  assert.equal(account.status, "active", "the account can be used at once")
+  assert.equal(account.must_change_password, 1, "the member chooses their own password on first sign-in")
 
   const byExactName = await api("POST", "/api/auth/login", {
-    body: { identifier: "No Email Applicant", password: "NameLogin!2026dd" },
+    body: { identifier: "No Email Applicant", password: credentials.password },
   })
   assert.equal(byExactName.status, 200, `signing in by name must work: ${JSON.stringify(byExactName.json)}`)
   assert.equal(byExactName.json.user.displayName, "No Email Applicant")
+  assert.equal(byExactName.json.user.mustChangePassword, true, "a password change is required on first sign-in")
 
   // The lookup is forgiving about case and spacing.
   const byLooseName = await api("POST", "/api/auth/login", {
-    body: { identifier: "  no email   applicant ", password: "NameLogin!2026dd" },
+    body: { identifier: "  no email   applicant ", password: credentials.password },
   })
   assert.equal(byLooseName.status, 200, "case/spacing must not matter")
+
+  // Regression: the group administrator who approved the application must be able
+  // to open the member record, while other groups stay locked out.
+  const memberId = approve.json.member.member.id as string
+  const asApprover = await api("GET", `/api/members/${memberId}`, { cookie: senior })
+  assert.equal(asApprover.status, 200, `the approving group admin must see the member: ${JSON.stringify(asApprover.json)}`)
+  assert.equal(asApprover.json.member.member.username, "No Email Applicant", "the sign-in name is on the record")
+  assert.equal(asApprover.json.member.member.email, null, "the placeholder email is never shown")
+
+  const asOtherGroup = await api("GET", `/api/members/${memberId}`, {
+    cookie: await login(JUNIOR_EMAIL, process.env.JUNIOR_ADMIN_PASSWORD!),
+  })
+  assert.equal(asOtherGroup.status, 403, "another group's administrator stays blocked")
+
+  const asChairman = await api("GET", `/api/members/${memberId}`, {
+    cookie: await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!),
+  })
+  assert.equal(asChairman.status, 200, "the Chairman can read any member")
+
+  // Editing the member (member.write at group scope) must work for that admin.
+  const asEdit = await api("PATCH", `/api/members/${memberId}`, {
+    cookie: senior, body: { notes: "edited by the owning group admin" },
+  })
+  assert.equal(asEdit.status, 200, `the owning group admin must be able to edit: ${JSON.stringify(asEdit.json)}`)
 })
 
 test("rejecting an already-approved application is refused and changes nothing", async () => {
@@ -214,7 +245,7 @@ test("rejecting an already-approved application is refused and changes nothing",
   })
   assert.equal(approve.status, 201, `approve should create the member: ${JSON.stringify(approve.json)}`)
   assert.ok(approve.json.member?.member?.member_no, "member record expected")
-  assert.ok(approve.json.invitation?.url, "invitation expected on first approval")
+  assert.ok(approve.json.credentials?.password, "a password is generated on first approval")
   assert.equal(applicationStatus(appId), "approved")
   assert.equal(memberCountFor(email), 1)
 

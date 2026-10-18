@@ -199,8 +199,9 @@ In both options, submitting the form **never** creates an account. It only creat
 record that must be reviewed and approved by an administrator.
 
 The form's email question is **optional**. Approving an application always creates the member and
-the account invitation; the applicant's **username** (derived from their full name) is returned with
-the invitation link, and is what they sign in with when no email address was given.
+the sign-in account, and returns an automatically generated **username and password** to the
+administrator — the username comes from the applicant's full name, and is what they sign in with when
+no email address was given. The member is asked to choose their own password at first sign-in.
 
 ---
 

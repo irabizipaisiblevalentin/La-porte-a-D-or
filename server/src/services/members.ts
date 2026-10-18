@@ -3,6 +3,7 @@ import { all, one, run, transaction } from "../db/index.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
 import { getGroupById } from "./groups.js"
+import { isPlaceholderEmail } from "./usernames.js"
 
 export interface MemberRow {
   id: string
@@ -88,7 +89,14 @@ export function getMemberByUserId(userId: string): MemberRow | undefined {
 }
 
 export interface FullMember {
-  member: MemberRow & { group_key: string; group_name: string; voice_section_name: string | null; email: string | null }
+  member: MemberRow & {
+    group_key: string
+    group_name: string
+    voice_section_name: string | null
+    email: string | null
+    /** Sign-in name for accounts created without an email address. */
+    username: string | null
+  }
   contact: Record<string, unknown> | null
   senior: Record<string, unknown> | null
   junior: Record<string, unknown> | null
@@ -114,8 +122,13 @@ export function getMemberDetail(memberId: string, options: { includeSensitive: b
   const support = one<Record<string, unknown>>("SELECT * FROM member_support WHERE member_id = ?", memberId)
 
   const account = member.user_id
-    ? one<{ email: string }>("SELECT email FROM users WHERE id = ?", member.user_id)
+    ? one<{ email: string; username: string | null }>("SELECT email, username FROM users WHERE id = ?", member.user_id)
     : undefined
+
+  // A member who applied without an email has a reserved placeholder address —
+  // never show it, and never offer it as a contact address.
+  const accountEmail = account && account.email && !isPlaceholderEmail(account.email) ? account.email : null
+  if (contact) contact.account_email = accountEmail
 
   const sensitiveJunior = junior && !options.includeSensitive
     ? {
@@ -126,7 +139,11 @@ export function getMemberDetail(memberId: string, options: { includeSensitive: b
     : junior
 
   return {
-    member: { ...member, email: account?.email ?? (contact?.email as string | null) ?? null },
+    member: {
+      ...member,
+      email: accountEmail ?? (contact?.email as string | null) ?? null,
+      username: account?.username ?? null,
+    },
     contact: contact ?? null,
     senior: senior ?? null,
     junior: sensitiveJunior ?? null,

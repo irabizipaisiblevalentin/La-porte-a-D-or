@@ -309,8 +309,9 @@ Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
   troubleshooting guide in [`docs/apps-script/README.md`](docs/apps-script/README.md) and the
   integration explained in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
 - **Email / SMS.** *Not configured.* In-app notifications are real, but external email is **not**
-  sent. Invitation and password-reset links are therefore surfaced to the administrator to share
-  manually — the UI states this plainly.
+  sent. Approving an application therefore generates the member's username and password on the spot
+  for the administrator to pass on, and password-reset links are surfaced to the administrator to
+  share manually — the UI states this plainly.
 
 ---
 
@@ -318,20 +319,26 @@ Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
 
 ```
 Google Form ─▶ Sheet ─▶ webhook/manual ─▶ application record ─▶ review
-        ─▶ approve ─▶ (exactly one) member + invited account ─▶ role ─▶ invitation link
-        ─▶ member activates ─▶ login
+        ─▶ approve ─▶ (exactly one) member + account with generated username & password
+        ─▶ role ─▶ administrator shares the credentials ─▶ member signs in, sets their own password
 ```
 
 Submitting the form never creates an account. Only an approve decision — which requires the
-`application.decide` permission at the correct group scope — creates a member and an invitation, in
-a single transaction, and writes an audit entry.
+`application.decide` permission at the correct group scope — creates a member and a sign-in account,
+in a single transaction, and writes an audit entry.
+
+**Credentials are generated at approval.** Because email delivery is not configured, approving an
+application mints the account **username and password** immediately and shows them to the approving
+administrator once, with a copy button. The password is random and easy to read aloud
+(`Ingoma!4821-umwuka`), the account is active straight away, and the member is asked to choose their
+own password the first time they sign in.
 
 **Signing in.** The form's email question is optional. Every approved applicant receives a username
 derived from their full name (`Irabizi Valentin`, or `Irabizi Valentin 2` if that name is already
 taken), so they can sign in with either their email address or that username. When an applicant left
 the email blank, the account stores a reserved, non-routable placeholder address
-(`…@no-email.invalid`) and the username is the only way in; the login, invite and approval screens
-all show it. The lookup ignores case, accents and spacing.
+(`…@no-email.invalid`) — never shown anywhere — and the username becomes the permanent sign-in name
+on their member record. The lookup is forgiving about case and spacing.
 
 **Which administrator sees a submission.** The webhook reads the applicant's name, email/phone and
 the group from the Google Form answers (a flat `"Question": "Answer"` payload works as-is). The

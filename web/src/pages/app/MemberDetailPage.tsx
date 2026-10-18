@@ -73,6 +73,8 @@ interface MemberRow {
   group_name: string
   voice_section_name: string | null
   email: string | null
+  /** Sign-in name for accounts created without an email address. */
+  username: string | null
 }
 
 interface MemberContact {
@@ -443,6 +445,13 @@ export function MemberDetailPage() {
               <p className="mt-0.5 flex items-center gap-2 text-sm">
                 <Mail size={14} className="opacity-70" aria-hidden />
                 {member.email ?? "—"}
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <p className="muted text-xs font-medium uppercase tracking-wide">Sign-in name</p>
+              <p className="mt-0.5 flex items-center gap-2 text-sm">
+                <User size={14} className="opacity-70" aria-hidden />
+                {member.username ?? "—"}
               </p>
             </div>
             <div className="sm:col-span-2">

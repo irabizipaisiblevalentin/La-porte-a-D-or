@@ -130,7 +130,7 @@ interface ApprovedMember {
 interface DecisionResponse {
   application?: ApplicationDetail
   member?: ApprovedMember | null
-  invitation?: { url: string; expiresAt?: string; username?: string } | null
+  credentials?: { username: string; password: string } | null
   duplicate?: boolean
 }
 
@@ -271,14 +271,14 @@ export function ApplicationDetailPage() {
     toast.success("Document uploaded.")
   }
 
-  async function copyInvitation(url: string) {
+  async function copyCredentials(text: string) {
     try {
-      await navigator.clipboard.writeText(url)
+      await navigator.clipboard.writeText(text)
       setCopied(true)
-      toast.success("Invitation link copied.")
+      toast.success("Sign-in details copied.")
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      toast.error("Could not copy automatically. Select the link and copy it manually.")
+      toast.error("Could not copy automatically. Select the text and copy it manually.")
     }
   }
 
@@ -323,8 +323,7 @@ export function ApplicationDetailPage() {
   const canReview = can("application.review")
   const canDecide = can("application.decide")
   const decided = application.status === "approved" || application.status === "rejected"
-  const invitation = decisionResult?.invitation ?? null
-  const invitationUrl = invitation ? `${window.location.origin}${invitation.url}` : null
+  const credentials = decisionResult?.credentials ?? null
 
   return (
     <div className="flex flex-col gap-6">
@@ -397,7 +396,7 @@ export function ApplicationDetailPage() {
         <Card>
           <CardHeader
             title="Approval result"
-            description="Approving created exactly one member record and one account invitation."
+            description="Approving created exactly one member record and one sign-in account."
           />
           <CardBody className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -409,44 +408,54 @@ export function ApplicationDetailPage() {
               Open member record <ExternalLink size={13} />
             </Link>
 
-            {invitationUrl ? (
+            {credentials ? (
               <div className="flex flex-col gap-3 rounded-xl border border-gold-400/40 bg-gold-400/10 px-4 py-3">
                 <div className="flex items-start gap-2">
                   <Info size={16} className="mt-0.5 shrink-0 text-gold-600 dark:text-gold-300" aria-hidden />
                   <p className="text-sm">
-                    An account invitation was created.{" "}
-                    <strong className="font-semibold">
-                      No email was sent automatically
-                    </strong>{" "}
-                    — email delivery may not be configured. Share this link with the applicant directly so they can set a password.
+                    <strong className="font-semibold">Sign-in details were generated automatically.</strong>{" "}
+                    No email was sent — write these down and give them to the member. The password is shown only
+                    once; they will be asked to choose their own the first time they sign in.
                   </p>
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Input readOnly value={invitationUrl} aria-label="Invitation link" onFocus={(event) => event.target.select()} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <span className="muted text-xs font-medium uppercase tracking-wide">Username</span>
+                    <Input
+                      readOnly
+                      value={credentials.username}
+                      aria-label="Username"
+                      onFocus={(event) => event.target.select()}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="muted text-xs font-medium uppercase tracking-wide">Password</span>
+                    <Input
+                      readOnly
+                      value={credentials.password}
+                      aria-label="Password"
+                      onFocus={(event) => event.target.select()}
+                    />
+                  </div>
+                </div>
+                <div>
                   <Button
                     variant="outline"
                     icon={copied ? <Check size={16} /> : <Copy size={16} />}
-                    onClick={() => copyInvitation(invitationUrl)}
+                    onClick={() =>
+                      copyCredentials(`Username: ${credentials.username}\nPassword: ${credentials.password}`)
+                    }
                   >
-                    {copied ? "Copied" : "Copy link"}
+                    {copied ? "Copied" : "Copy both"}
                   </Button>
                 </div>
-                <p className="muted text-xs">
-                  {invitation?.username ? (
-                    <>
-                      The applicant signs in with the username <strong className="font-medium">{invitation.username}</strong>{" "}
-                      (they left the email question blank).{" "}
-                    </>
-                  ) : null}
-                  {invitation?.expiresAt ? <>This link expires {formatDateTime(invitation.expiresAt)}.</> : null}
-                </p>
               </div>
             ) : (
               <div className="flex items-start gap-2 rounded-xl border border-gold-400/40 bg-gold-400/10 px-4 py-3 text-sm">
                 <Info size={16} className="mt-0.5 shrink-0 text-gold-600 dark:text-gold-300" aria-hidden />
                 <span>
-                  This application was already approved, so no new invitation was created. Ask an administrator to
-                  send a password reset if the applicant needs access.
+                  This application was already approved, so no new password was generated. The member's username is on
+                  their member record; ask the Chairman to reset the password if it has been lost.
                 </span>
               </div>
             )}
