@@ -72,6 +72,22 @@ test("members_admin is scoped to the members group and cannot reach settings", (
   assert.equal(appRead.scope, "members")
 })
 
+test("senior_leader is scoped to the senior group and cannot reach settings", () => {
+  const senior = ROLES.find((role) => role.key === "senior_leader")!
+  const keys = new Set(senior.grants.map((grant) => grant.key))
+  assert.equal(keys.has("settings.read"), false, "senior_leader must not read org-wide settings")
+  assert.equal(keys.has("settings.write"), false)
+  assert.equal(keys.has("audit.read"), false)
+  assert.equal(keys.has("users.manage"), false)
+  // Sensitive junior (minor) data is for the Junior Administrator only.
+  assert.equal(keys.has("member.sensitive.read"), false)
+
+  const appRead = senior.grants.find((grant) => grant.key === "application.read")!
+  assert.equal(appRead.scope, "senior")
+  const memberRead = senior.grants.find((grant) => grant.key === "member.read")!
+  assert.equal(memberRead.scope, "senior")
+})
+
 test("singers and support members are limited to their own records plus shared read", () => {
   for (const key of ["senior_singer", "junior_singer", "support_member"]) {
     const role = ROLES.find((r) => r.key === key)!

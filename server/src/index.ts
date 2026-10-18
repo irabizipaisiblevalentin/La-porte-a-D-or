@@ -2,6 +2,7 @@ import { createApp } from "./app.js"
 import { config } from "./config.js"
 import { migrate } from "./db/index.js"
 import { seed } from "./db/seed.js"
+import { seedDefaultAccounts } from "./db/seed-admins.js"
 import { sessionMaintenance } from "./auth/session.js"
 import { rateLimitMaintenance } from "./middleware/rate-limit.js"
 import { clearExpiredLockouts, publishDueAnnouncements } from "./services/scheduler.js"
@@ -10,8 +11,36 @@ import { issueSetupToken, needsInitialSetup } from "./routes/setup.js"
 migrate((message) => console.log(`[migrate] ${message}`))
 seed((message) => console.log(`[seed] ${message}`))
 
-if (needsInitialSetup()) issueSetupToken()
-else console.log("[setup] administrator account present")
+/**
+ * First-boot administrator bootstrap.
+ *
+ * When the deployer has explicitly opted in with ALLOW_DEFAULT_ACCOUNTS=1, the
+ * four default administrator accounts are created — but only the ones that do
+ * not exist yet (passwords overridable via CHAIRMAN_PASSWORD /
+ * SENIOR_ADMIN_PASSWORD / JUNIOR_ADMIN_PASSWORD / MEMBERS_ADMIN_PASSWORD).
+ * Existing accounts are NEVER modified: a password changed by the chairman in
+ * the UI survives every restart. Accounts still carrying the public sample
+ * password are forced to pick their own at first sign-in (production only).
+ *
+ * Without the flag, behaviour is unchanged: a one-time setup token is issued
+ * only while no administrator exists at all.
+ */
+function bootstrapAdministrators(): void {
+  if (process.env.ALLOW_DEFAULT_ACCOUNTS === "1") {
+    try {
+      console.log("[setup] ALLOW_DEFAULT_ACCOUNTS=1 — creating any default administrator account that is missing")
+      seedDefaultAccounts((message) => console.log(`[setup]   ✓ ${message}`), undefined, "create-missing")
+      console.log("[setup] done — existing accounts (passwords, roles) were left untouched")
+    } catch (error) {
+      console.error("[setup] could not create default administrator accounts:", error)
+    }
+  }
+
+  if (needsInitialSetup()) issueSetupToken()
+  else console.log("[setup] administrator account present")
+}
+
+bootstrapAdministrators()
 
 const app = createApp()
 const server = app.listen(config.port, config.host, () => {

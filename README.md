@@ -20,7 +20,7 @@ gold/charcoal premium interface in light and dark themes.
 - [First administrator setup](#first-administrator-setup)
 - [Default development sign-in accounts](#default-development-sign-in-accounts)
 - [Production build & run](#production-build--run)
-- [Deploying to the internet (`*.web.app`)](#deploying-to-the-internet-webapp)
+- [Deploying on Render (live)](#deploying-on-render-live)
 - [Environment variables](#environment-variables)
 - [Roles & permissions](#roles--permissions)
 - [Integrations](#integrations)
@@ -136,27 +136,37 @@ cd server && npx tsx src/db/migrate.ts && npx tsx src/db/seed.ts
 
 ## Administrator accounts
 
-The three administrator accounts can be created (or reset) with a single command:
+The four administrator accounts can be created (or reset) with a single command:
 
 ```bash
 npm run seed:admins
 ```
 
-This creates — or resets — the **three real administrator accounts** for the choir. It is
-**idempotent** (re-running resets the passwords to the values below) and it is **never run
-automatically** on server boot, so no known password exists on a normal deployment. It refuses to
-run when `NODE_ENV=production` unless you pass `ALLOW_DEFAULT_ACCOUNTS=1`.
+This creates — or resets — the **four real administrator accounts** for the choir. It is
+**idempotent** (re-running resets the passwords to the values below). It refuses to run when
+`NODE_ENV=production` unless you pass `ALLOW_DEFAULT_ACCOUNTS=1`.
+
+> **On server boot** the same logic runs in *create-missing* mode, but **only** when the deployer
+> opted in with `ALLOW_DEFAULT_ACCOUNTS=1`: accounts that already exist are never modified (a
+> password changed in the UI survives every restart), and only the missing ones are inserted. In
+> production an account still carrying a sample password below is forced to choose its own at first
+> sign-in. Without the flag, boot behaviour is unchanged: a one-time setup token is issued while no
+> administrator exists (see [First administrator setup](#first-administrator-setup)).
 
 | Role | Email | Password | Sign-in page |
 | --- | --- | --- | --- |
-| **Chairman** (supreme, all three groups) | `chairman@laportedor.local` | `ChairmanLogin!2026` | `/admin/login` |
-| Junior Administrator | `junior.admin@laportedor.local` | `JuniorAdminLogin!2026` | `/admin/login` |
-| Members Administrator | `members.admin@laportedor.local` | `MembersAdminLogin!2026` | `/admin/login` |
+| **Chairman** (oversees all three groups, heads the Founders section) | `chairman@laportedor.local` | `ChairmanLogin!2026` | `/admin/login` |
+| Senior Leader (Senior group) | `senior.admin@laportedor.local` | `SeniorAdminLogin!2026` | `/admin/login` |
+| Junior Administrator (Junior group) | `junior.admin@laportedor.local` | `JuniorAdminLogin!2026` | `/admin/login` |
+| Members Administrator (Members/Support group) | `members.admin@laportedor.local` | `MembersAdminLogin!2026` | `/admin/login` |
 
-Each account is given the matching profile photo from `web/public/assets/avatars/`
-(`chairman.png`, `junior-admin.jpg`, `members-admin.jpg`). The **Chairman controls all three groups**
-(Senior, Junior and Members/Support Members) and is the only account with organisation-wide settings,
-integrations and audit access.
+The Chairman, Junior and Members accounts are given the matching profile photo from
+`web/public/assets/avatars/` (`chairman.png`, `junior-admin.jpg`, `members-admin.jpg`); the Senior
+Leader account has no photo yet — add one from **Administration → Accounts** after signing in. Each
+group administrator handles their own group's applications and members; the **Chairman sees
+everything happening across all three groups**, can act anywhere, and is the only account with
+organisation-wide settings, integrations and audit access. A Google Form application for the Senior
+group lands in the Senior Leader's queue (the Chairman is notified too).
 
 **Override the credentials per deployment** without editing code — set any of these before running
 `seed:admins` (or on the server before first boot):
@@ -164,6 +174,7 @@ integrations and audit access.
 | Variable | Purpose |
 | --- | --- |
 | `CHAIRMAN_EMAIL`, `CHAIRMAN_NAME`, `CHAIRMAN_PASSWORD` | Chairman account. |
+| `SENIOR_ADMIN_EMAIL`, `SENIOR_ADMIN_NAME`, `SENIOR_ADMIN_PASSWORD` | Senior Leader. |
 | `JUNIOR_ADMIN_EMAIL`, `JUNIOR_ADMIN_NAME`, `JUNIOR_ADMIN_PASSWORD` | Junior administrator. |
 | `MEMBERS_ADMIN_EMAIL`, `MEMBERS_ADMIN_NAME`, `MEMBERS_ADMIN_PASSWORD` | Members administrator. |
 
@@ -195,19 +206,32 @@ SESSION_COOKIE_SECURE=true
 
 ---
 
-## Deploying to the internet (`*.web.app`)
+## Deploying on Render (live)
 
-A ready-made path to a public **`https://<project>.web.app`** URL is included:
+The production deployment runs on **Render** (free plan, no credit card) at
+**<https://la-porte-ador.onrender.com>** — one origin for the API, the web app and `/media`.
 
-```bash
-PROJECT_ID=your-project-id ./deploy/deploy.sh
+Because Render's free plan has an ephemeral disk, the SQLite database is continuously replicated to
+a **Backblaze B2** bucket with **Litestream** (`deploy/render-start.sh`); on boot the database is
+restored from the bucket before the app starts. Set in the Render dashboard:
+
+```
+Build Command    npm ci && npm run build
+Start Command    sh deploy/render-start.sh
+Health Check     /api/health
+
+APP_SECRET=<stable random string>          ALLOW_DEFAULT_ACCOUNTS=1
+CHAIRMAN_PASSWORD=…  SENIOR_ADMIN_PASSWORD=…  JUNIOR_ADMIN_PASSWORD=…  MEMBERS_ADMIN_PASSWORD=…
+SESSION_COOKIE_SECURE=true
+
+# Durable storage (Backblaze B2, free tier, no credit card):
+S3_BUCKET=…  S3_ENDPOINT=https://s3.<region>.backblazeb2.com  S3_REGION=…
+S3_ACCESS_KEY_ID=…  S3_SECRET_ACCESS_KEY=…
 ```
 
-It deploys the server to **Cloud Run** and puts **Firebase Hosting** in front for the
-`*.web.app` address. Because Cloud Run's disk is ephemeral and the app uses SQLite,
-the database is continuously replicated to Cloud Storage with **Litestream**
-(`Dockerfile` + `deploy/entrypoint.sh`). Full instructions, caveats, and the
-first-admin step are in **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**.
+Full instructions — including the Backblaze B2 setup, the Google Form webhook wiring and the
+troubleshooting table — are in **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**. A `render.yaml`
+blueprint documenting the same settings is included.
 
 ---
 
@@ -230,6 +254,8 @@ All are optional in development; the ones marked **prod** should be set in produ
 | `MAX_IMAGE_BYTES` | `8388608` | Upload limit for images. |
 | `MAX_AUDIO_BYTES` | `83886080` | Upload limit for audio. |
 | `MAX_DOCUMENT_BYTES` | `16777216` | Upload limit for documents. |
+| `ALLOW_DEFAULT_ACCOUNTS` | unset | `1` → on boot, create any default administrator account that doesn't exist yet (existing accounts are never modified). **prod** |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`, `S3_PREFIX` | unset | S3-compatible storage (Backblaze B2). Enables upload mirroring and — via `deploy/render-start.sh` — Litestream database replication. **prod** |
 
 Secrets for integrations (YouTube, Google Sheets, SMTP) are **not** environment variables — they are
 entered in the app under **Settings → Integrations** and stored encrypted at rest.
@@ -326,12 +352,12 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 23 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 30 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
-  role/permission invariants (exactly six roles, exactly three admin roles, `junior_admin` /
-  `members_admin` cannot reach settings or audit, singers limited to own records, every granted
-  permission exists at an allowed scope), and the administrator-account definitions (strong passwords,
-  known roles, exactly the three admin roles, one profile photo each, env overrides).
+  role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
+  `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
+  every granted permission exists at an allowed scope), and the administrator-account definitions
+  (strong passwords, known roles, exactly the four admin roles, profile photos when set, env overrides).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.
 - `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
   into `dist/` so `npm start` (compiled output) boots.
@@ -365,14 +391,20 @@ field mapping.
   (returns settings + integrations, **never** returns secret plaintext), integrations patch, roles.
 - SPA served with deep-link fallback (`/`, `/login`, `/admin/login`, `/admin`, `/app` → HTML) and
   static assets (`/logo.png`, `/assets/gallery/*`, `/assets/avatars/*`).
-- **Administrator accounts:** `npm run seed:admins` creates the three accounts idempotently and
-  **all three log in successfully** — the Chairman and the two group administrators each get the admin
-  dashboard (`role` = chairman/junior_admin/members_admin). The admin sign-in page (`/admin/login`,
-  plus `/admin`) and the member sign-in page (`/login`) both serve.
+- **Administrator accounts:** `npm run seed:admins` creates the four accounts idempotently and
+  **all four log in successfully** — the Chairman and the three group administrators each get the admin
+  dashboard (`role` = chairman/senior_leader/junior_admin/members_admin). The admin sign-in page
+  (`/admin/login`, plus `/admin`) and the member sign-in page (`/login`) both serve.
 - **Role-differentiated dashboards:** the dashboard payload differs by role — the Chairman gets all
-  three groups, the two group admins get exactly their own group, and members get their personal view.
-  A live run confirmed the three admin dashboards report three distinct scope labels and only the
-  Chairman receives the member-message panels.
+  three groups plus the Founders of the Choir section, each group admin gets exactly their own group,
+  and members get their personal view. A live run confirmed each admin dashboard reports its own scope
+  label and only the Chairman receives the member-message and Founders panels.
+- **Senior Leader role (live, 32/32 e2e checks):** the Senior Leader logs in, sees only the Senior
+  group, and is denied Junior-group member reads and settings. A webhook application for the Senior
+  group lands in the Senior Leader's queue (and the Chairman's, for oversight), notifies both, stays
+  invisible to the Junior Admin, and the Senior Leader's approval creates exactly one active Senior
+  member. The Chairman can save a Founders list (invalid JSON is rejected with 400) which the
+  dashboard renders; the Senior Leader cannot edit it.
 - **Group-aware webhook intake (live):** a Google-Forms-style flat POST with only a *“Which group are
   you applying for?”* answer had its **Junior** group inferred, produced a `pending` application, and
   was visible to the Chairman **and** the Junior Admin while staying invisible to the Members Admin.
@@ -389,8 +421,8 @@ field mapping.
   new message arrives.
 
 > The development database was reset for this launch: the previous test/demo rows (test singers,
-> testers, smoke songs, old `senior.admin@…` account) were removed. Reference data is re-seeded, so the
-> site starts clean with only the three real administrator accounts.
+> testers, smoke songs) were removed. Reference data is re-seeded, so the site starts clean with only
+> the four real administrator accounts.
 
 **Not verified / requires setup or a browser:**
 
@@ -410,14 +442,14 @@ field mapping.
 - **Multipart file uploads** (member photos, song audio, application documents, brand/gallery) — the
   routes and size/type validation exist; uploads were not exercised end-to-end in these tests.
 - Attendance rate arithmetic beyond the default policy values.
-- **The cloud deployment itself** (`Dockerfile`, `deploy/entrypoint.sh`, `deploy/deploy.sh`,
-  `firebase.json`, `docs/DEPLOYMENT.md`) — these were written and checked here only to the extent the
-  environment allows: shell syntax (`sh -n` / `bash -n`), JSON validity, and that the build outputs the
-  Dockerfile depends on exist (`server/dist/index.js`, `server/dist/db/schema.sql`,
-  `web/dist/index.html`). No `docker`, `gcloud`, or `firebase` CLI is installed in this environment, so
-  **the image was never built and nothing was deployed** — the actual build, Litestream
-  restore/replicate against a real bucket, the Cloud Storage media mount, and the Firebase Hosting
-  rewrite to Cloud Run all remain unverified until you run the deploy.
+- **The Render deployment** — the live service was verified to serve the built SPA, `/api/health`
+  and a real administrator sign-in over https. The durable-storage path was checked only as far as
+  this environment allows: `deploy/render-start.sh` falls back correctly without `S3_*`, downloads
+  Litestream v0.5.17, and its config format (including Backblaze B2 endpoint/region/path-style
+  options and litestream's `${ENV}` expansion) was validated against Backblaze's real S3 API. A full
+  **backup/restore cycle against a real bucket** could not be run here (no bucket available) and
+  remains to be confirmed after the first B2 restart. The optional Docker image (`Dockerfile`,
+  `deploy/entrypoint.sh`) was never built — no `docker` CLI in this environment.
 
 ---
 
@@ -425,9 +457,11 @@ field mapping.
 
 - Passwords: scrypt with per-password salt; never logged.
 - Sessions: opaque random token, stored **hashed**; httpOnly cookie; rolling expiry; lockout.
-- Default development accounts (`npm run seed:admins`) are **opt-in**, never created on boot, and the
-  script refuses to run under `NODE_ENV=production` unless `ALLOW_DEFAULT_ACCOUNTS=1` is set. Change or
-  delete them before any real deployment.
+- Default accounts (`npm run seed:admins`) are **opt-in** and refuse to run under
+  `NODE_ENV=production` unless `ALLOW_DEFAULT_ACCOUNTS=1` is set. On boot, that same flag only
+  **creates missing** accounts and never modifies existing ones; in production, accounts still
+  carrying a sample password must choose their own at first sign-in. Change or delete the sample
+  credentials before any real deployment (or set the `*_PASSWORD` environment variables).
 - Secrets (integration keys/credentials): AES-256-GCM at rest; never returned to the browser.
 - Every protected request checks authorization server-side, including group isolation; id/param
   tampering cannot bypass it.
@@ -441,13 +475,13 @@ field mapping.
 
 ```
 choir/
-├─ Dockerfile             # Cloud Run image (web + server + Litestream)
-├─ firebase.json          # Firebase Hosting → Cloud Run rewrite (the *.web.app front door)
-├─ deploy/                # entrypoint.sh (Litestream restore/replicate), deploy.sh, hosting/
+├─ Dockerfile             # OPTIONAL container image (web + server + Litestream; not used by Render)
+├─ render.yaml            # Render blueprint reference (service settings + env vars)
+├─ deploy/                # render-start.sh (Render + Litestream→B2), entrypoint.sh (Docker), hosting/
 ├─ docs/
 │  ├─ API.md              # canonical endpoint contract
 │  ├─ CONVENTIONS.md      # stack, imports, auth, audit, UI conventions
-│  ├─ DEPLOYMENT.md       # Cloud Run + Firebase Hosting (https://<project>.web.app)
+│  ├─ DEPLOYMENT.md       # Render + Backblaze B2 (https://la-porte-ador.onrender.com)
 │  ├─ INTEGRATIONS.md     # YouTube / Google Sheets / SMTP setup steps
 │  └─ apps-script/        # Code.gs + README.md (ready-to-paste Google Apps Script)
 ├─ server/                # Express 5 + better-sqlite3 API

@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1
 # ---------------------------------------------------------------------------
-# Chorale La Porte d'Or — production image for Cloud Run (behind Firebase
-# Hosting, which provides the https://<project>.web.app address).
+# Chorale La Porte d'Or — OPTIONAL container image (not used by the production
+# Render deployment, which runs deploy/render-start.sh directly; see
+# docs/DEPLOYMENT.md). Kept for anyone who wants to self-host with Docker.
 #
 # The app is an Express server that also serves the built SPA. It owns a
-# SQLite database (better-sqlite3). Cloud Run disks are ephemeral, so the
-# entrypoint restores/replicates the database to Cloud Storage via Litestream.
+# SQLite database (better-sqlite3). Container disks are ephemeral, so the
+# entrypoint restores/replicates the database via Litestream to Backblaze B2
+# (S3_* variables) or Google Cloud Storage (REPLICA_BUCKET).
 # ---------------------------------------------------------------------------
 
 # ---- Stage 1: build -------------------------------------------------------
@@ -41,18 +43,21 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-# Litestream — continuous SQLite replication to Cloud Storage.
-ARG LITESTREAM_VERSION=0.3.13
-ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz /tmp/litestream.tar.gz
-RUN tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin && rm -f /tmp/litestream.tar.gz && litestream version
+# Litestream — continuous SQLite replication to Backblaze B2 / Cloud Storage.
+# Note: from v0.5.x the release asset is named litestream-<ver>-linux-x86_64.tar.gz
+# (no "v" in the file name, x86_64 instead of amd64).
+ARG LITESTREAM_VERSION=0.5.17
+ADD https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-${LITESTREAM_VERSION}-linux-x86_64.tar.gz /tmp/litestream.tar.gz
+RUN tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin litestream && rm -f /tmp/litestream.tar.gz && litestream version
 
 WORKDIR /app
 COPY --from=build /app /app
 COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Ephemeral by default; uploaded media should be mounted from Cloud Storage
-# (see docs/DEPLOYMENT.md). The database is protected by Litestream instead.
+# Ephemeral by default; uploaded media is mirrored to the S3/GCS bucket when
+# S3_* variables are set (see docs/DEPLOYMENT.md). The database is protected
+# by Litestream instead.
 VOLUME ["/data"]
 EXPOSE 8080
 

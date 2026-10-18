@@ -10,11 +10,16 @@
  * below. Each value can be overridden with environment variables (see
  * `defaultAccounts()` in `default-accounts.ts`). For safety it refuses to run under
  * NODE_ENV=production unless you explicitly pass ALLOW_DEFAULT_ACCOUNTS=1.
+ *
+ * On server boot the same function runs in `create-missing` mode (see
+ * `bootstrapAdministrators()` in `index.ts`): accounts that already exist are
+ * never modified — their passwords and roles stay untouched — and only the
+ * missing ones are inserted.
  */
 import { isProd } from "../config.js"
 import { migrate, one, run, transaction } from "./index.js"
 import { seed } from "./seed.js"
-import { defaultAccounts, type DefaultAccount } from "./default-accounts.js"
+import { DEFAULT_ACCOUNTS, defaultAccounts, type DefaultAccount } from "./default-accounts.js"
 import { hashPassword, id, validatePasswordStrength } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
 import { createMemberRecord } from "../services/members.js"
@@ -26,17 +31,39 @@ interface ExistingUser {
   email: string
 }
 
-function ensureUser(account: DefaultAccount, timestamp: string): string {
+/** "reset" rewrites every listed account; "create-missing" only inserts accounts that don't exist yet. */
+export type SeedMode = "reset" | "create-missing"
+
+/** The public sample password shipped in the repository for a given role, if any. */
+function samplePasswordFor(roleKey: string): string | undefined {
+  return DEFAULT_ACCOUNTS.find((account) => account.roleKey === roleKey)?.password
+}
+
+/**
+ * 1 when the account still carries the public sample password from the repository:
+ * in production such an account must choose its own password at first sign-in.
+ * Passwords supplied through the environment are trusted and never force a change.
+ */
+function mustChangeOnLogin(account: DefaultAccount): number {
+  const sample = samplePasswordFor(account.roleKey)
+  return isProd && sample !== undefined && account.password === sample ? 1 : 0
+}
+
+function ensureUser(account: DefaultAccount, timestamp: string, mode: SeedMode): string | null {
   const normalized = account.email.toLowerCase()
   const existing = one<ExistingUser>("SELECT id, email FROM users WHERE email_normalized = ?", normalized)
 
   if (existing) {
+    // Never touch an account that already exists — its password (possibly changed
+    // by the chairman in the UI), roles and profile stay exactly as they are.
+    if (mode === "create-missing") return null
     run(
       `UPDATE users
           SET email = ?, display_name = ?, avatar_path = ?, status = 'active', password_hash = ?,
-              must_change_password = 0, failed_login_count = 0, locked_until = NULL, updated_at = ?
+              must_change_password = ?, failed_login_count = 0, locked_until = NULL, updated_at = ?
         WHERE id = ?`,
-      account.email, account.displayName, account.avatarPath, hashPassword(account.password), timestamp, existing.id,
+      account.email, account.displayName, account.avatarPath, hashPassword(account.password),
+      mustChangeOnLogin(account), timestamp, existing.id,
     )
     return existing.id
   }
@@ -45,9 +72,9 @@ function ensureUser(account: DefaultAccount, timestamp: string): string {
   run(
     `INSERT INTO users (id, email, email_normalized, password_hash, display_name, avatar_path, status,
                         must_change_password, failed_login_count, last_login_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', 0, 0, NULL, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 0, NULL, ?, ?)`,
     userId, account.email, normalized, hashPassword(account.password), account.displayName, account.avatarPath,
-    timestamp, timestamp,
+    mustChangeOnLogin(account), timestamp, timestamp,
   )
   return userId
 }
@@ -79,6 +106,7 @@ function ensureMemberRecord(userId: string, account: DefaultAccount, timestamp: 
 export function seedDefaultAccounts(
   log: (message: string) => void = () => {},
   accounts: DefaultAccount[] = defaultAccounts(),
+  mode: SeedMode = "reset",
 ): void {
   if (isProd && process.env.ALLOW_DEFAULT_ACCOUNTS !== "1") {
     throw new Error(
@@ -89,6 +117,9 @@ export function seedDefaultAccounts(
   const timestamp = nowIso()
 
   for (const account of accounts) {
+    // Only accounts that will actually be (re)created need a valid password;
+    // an environment override for an account that already exists is irrelevant.
+    if (mode === "create-missing" && ensureUserExists(account)) continue
     const strength = validatePasswordStrength(account.password)
     if (!strength.ok) {
       throw new Error(`Default password for ${account.email} is too weak: ${strength.errors.join(" ")}`)
@@ -97,12 +128,20 @@ export function seedDefaultAccounts(
 
   transaction(() => {
     for (const account of accounts) {
-      const userId = ensureUser(account, timestamp)
+      const userId = ensureUser(account, timestamp, mode)
+      if (userId === null) {
+        log(`${account.roleKey.padEnd(14)} ${account.email} — already exists, left untouched`)
+        continue
+      }
       ensureRole(userId, account.roleKey, timestamp)
       const memberNo = ensureMemberRecord(userId, account, timestamp)
       log(`${account.roleKey.padEnd(14)} ${account.email}${memberNo ? `  (${memberNo})` : ""}`)
     }
   })
+}
+
+function ensureUserExists(account: DefaultAccount): boolean {
+  return one<ExistingUser>("SELECT id, email FROM users WHERE email_normalized = ?", account.email.toLowerCase()) !== undefined
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

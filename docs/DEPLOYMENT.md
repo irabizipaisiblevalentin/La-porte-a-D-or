@@ -1,179 +1,253 @@
-# Deploying to a `*.web.app` address
+# Deploying on Render (production)
 
-This guide puts the app on the public internet at **`https://<your-project>.web.app`**.
-
-## Why this architecture
-
-`*.web.app` is a **Firebase Hosting** domain. Firebase Hosting serves static
-files and can proxy requests to Google serverless backends — it cannot run a
-long-lived Node/Express server with a SQLite file. So:
+The choir platform runs live on **Render** at
+**<https://la-porte-ador.onrender.com>** — one origin serving the API, the web
+app and `/media`, no credit card required (Render free plan).
 
 ```
-Browser ──▶ Firebase Hosting (https://<project>.web.app)
-                 │  rewrite  /**  ─▶
-                 ▼
-            Cloud Run service "chorale-app"  (Express + the built SPA)
+Browser ──▶ https://la-porte-ador.onrender.com   (Render proxy, TLS)
                  │
-                 ├── SQLite  /data/chorale.db ──▶ Litestream ──▶ Cloud Storage bucket
-                 └── uploads /data/storage      ──▶ (optional) Cloud Storage mount
+                 ▼
+        Render web service (native Node environment)
+        Express server + built React SPA
+                 │
+                 ├── SQLite   server/data/chorale.db ──▶ Litestream ──▶ Backblaze B2 bucket (S3 API)
+                 └── uploads  server/data/storage    ──▶ mirrored to the same bucket (best effort)
 ```
 
-- **Cloud Run** runs the existing server unchanged (it already serves the SPA
-  and exposes `/api/**` and `/media/**` on one origin, so no CORS changes).
-- **Firebase Hosting** provides the `https://<project>.web.app` URL and forwards
-  every request to Cloud Run (`firebase.json`).
-- **Cloud Run disks are ephemeral**, so the database is continuously replicated
-  to Cloud Storage by **Litestream** (see `deploy/entrypoint.sh`). On each boot
-  the database is restored before the app starts.
+Render's free plan has an **ephemeral disk**: the SQLite file and all uploads
+are wiped on every redeploy and on Render's periodic instance restarts. That is
+why the database is continuously replicated to a **Backblaze B2** bucket (10 GB
+free, sign-up without a credit card) with **Litestream** — on boot the database
+is restored from the bucket before the app starts (`deploy/render-start.sh`).
 
-The files that implement this already exist in the repo:
+## Service settings (Render dashboard)
 
-| File | Purpose |
+Service → *Environment* / *Build & Deploy*:
+
+| Setting | Value |
 | --- | --- |
-| `Dockerfile` | Multi-stage build (web + server) with Litestream baked in. |
-| `deploy/entrypoint.sh` | Restores/replicates SQLite via Litestream, then starts the app. |
-| `firebase.json` | Rewrites all Hosting traffic to the Cloud Run service. |
-| `.firebaserc.example` | Template you copy to `.firebaserc` with your project id. |
-| `deploy/deploy.sh` | Runs the whole sequence below. |
+| Runtime | Node |
+| Build Command | `npm ci && npm run build` |
+| Start Command | `sh deploy/render-start.sh` |
+| Health Check Path | `/api/health` |
 
-## Prerequisites
+The repository also contains a `render.yaml` blueprint documenting the same
+settings; it is a reference only (the existing service is configured in the
+dashboard).
 
-1. A Google Cloud project with **billing enabled**.
-2. **Firebase added to that project** (Firebase console → *Add project* → choose
-   the existing GCP project). This is what turns on a `.web.app` domain.
-3. CLIs authenticated:
-   ```bash
-   gcloud auth login
-   gcloud config set project YOUR_PROJECT_ID
-   npm i -g firebase-tools
-   firebase login
-   ```
-4. The code on the machine running the deploy. This folder is not a git repo, so
-   either upload/`scp` it, use Cloud Shell (which includes `gcloud`), or
-   `git init` and push it somewhere the machine can clone.
+`deploy/render-start.sh` behaviour:
 
-## Deploy (one command)
+- **No `S3_*` variables set** → starts the app directly (`npm start`). The site
+  works, but the database is wiped on every restart.
+- **`S3_*` set** → downloads Litestream v0.5.17 (once per instance), restores the
+  database from the bucket if the local file is missing, then runs the app under
+  continuous replication. The Litestream config references the `S3_*` variables
+  via `${…}` expansion performed by Litestream itself, so **no secret is ever
+  written to disk**.
 
-```bash
-PROJECT_ID=your-project-id ./deploy/deploy.sh
+## Environment variables
+
+Set them in the dashboard (service → *Environment* → *Add Environment Variable*),
+then redeploy (*Manual Deploy* → *Deploy latest commit*) — env changes only take
+effect on the next deploy.
+
+### Required
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_SECRET` | Hashes sessions and encrypts stored integration secrets (webhook secret, SMTP password…). **Must be stable**: if it changes, everyone is logged out and previously stored secrets become undecryptable. Generate once with `openssl rand -base64 48` and never change it. |
+| `ALLOW_DEFAULT_ACCOUNTS=1` | Opt-in: on boot, create any of the four administrator accounts that do not exist yet. Existing accounts (passwords, roles) are **never modified**. Once all four accounts exist you may remove the variable. |
+
+### Administrator passwords (recommended)
+
+One per administrator; used only when that account does not exist yet.
+In production, an account still carrying the public **sample password** from the
+repository is forced to choose its own password at first sign-in.
+
+| Variable | Account |
+| --- | --- |
+| `CHAIRMAN_PASSWORD` | Chairman (`chairman@laportedor.local`) |
+| `SENIOR_ADMIN_PASSWORD` | Senior Administrator (`senior.admin@laportedor.local`) |
+| `JUNIOR_ADMIN_PASSWORD` | Junior Administrator (`junior.admin@laportedor.local`) |
+| `MEMBERS_ADMIN_PASSWORD` | Members Administrator (`members.admin@laportedor.local`) |
+
+Optional per account: `<PREFIX>_EMAIL`, `<PREFIX>_NAME` (e.g.
+`CHAIRMAN_NAME="Bunani Jean Marie Vianney"`). Passwords must be ≥10 characters
+with upper + lower + digit.
+
+### Durable storage (Backblaze B2)
+
+| Variable | Purpose |
+| --- | --- |
+| `S3_BUCKET` | Bucket name (e.g. `la-porte-ador-data`). |
+| `S3_ENDPOINT` | `https://s3.<region>.backblazeb2.com` (shown in the B2 console under the bucket → *Endpoint*). |
+| `S3_REGION` | e.g. `us-west-004` (shown next to the endpoint). |
+| `S3_ACCESS_KEY_ID` | B2 application key ID. |
+| `S3_SECRET_ACCESS_KEY` | B2 application key. |
+| `S3_FORCE_PATH_STYLE` | `true` (the default) — required for B2. |
+| `S3_PREFIX` | Optional, e.g. `uploads` — key prefix for uploaded media in the bucket. |
+
+With `S3_*` set the server also **mirrors every upload** into the bucket under
+`S3_PREFIX`. Note the known limitation below: after a redeploy the mirrored
+files are not served again automatically — the **database** is what is durably
+protected.
+
+### Other
+
+| Variable | Purpose |
+| --- | --- |
+| `SESSION_COOKIE_SECURE=true` | Session cookie only over https (Render terminates TLS). |
+| `NODE_ENV` | Render sets `production`; no need to change. |
+
+## First boot and the four administrators
+
+With `ALLOW_DEFAULT_ACCOUNTS=1` and the four password variables set, the first
+boot after a redeploy creates all four administrator accounts. Sign in at
+`/admin/login` (Chairman, Senior, Junior, Members administrators) or `/login`
+(singers and support members).
+
+If `ALLOW_DEFAULT_ACCOUNTS` is **not** set and no administrator exists, the
+server prints a one-time **setup token** in the logs and writes
+`server/data/FIRST-ADMIN-SETUP.txt`. Open `/setup`, paste the token and create
+the Chairman account; the other administrators are then created from the
+dashboard under *Administration → Accounts* (or enable the flag and redeploy).
+
+Group responsibilities (fixed, three official groups):
+
+| Group | Administrator role |
+| --- | --- |
+| Senior | `senior_leader` (Senior Administrator) |
+| Junior | `junior_admin` (Junior Administrator) |
+| Members/Support | `members_admin` (Members Administrator) |
+| — all three | `chairman` (supreme overseer) |
+
+## Google Form → application → automatic credentials
+
+1. Applicants fill in the choir's Google Form
+   (<https://forms.gle/JZJmWZNMQAYNm5uq5>).
+2. The Google Apps Script (`docs/apps-script/Code.gs`, pasted into the Form's
+   linked spreadsheet) POSTs each submission to
+   `https://la-porte-ador.onrender.com/api/applications/webhook`.
+3. The application appears under *Applications* for the applied-for group's
+   administrator (the Chairman is notified too).
+4. When the administrator **approves** it, the server automatically creates the
+   person's member record **and** their login account, and shows a one-time
+   **invitation link** (`/invite/<token>`) the administrator shares with the new
+   user; on first sign-in the user sets their own password. Accounts are never
+   created before approval — there is no public registration.
+
+Configure the Apps Script once (its `CONFIG` block at the top of the file):
+
+```js
+ENDPOINT: 'https://la-porte-ador.onrender.com/api/applications/webhook',
+SECRET:   '<copy from Administration → Settings → Integrations → Google webhook secret>',
 ```
 
-That script: enables the required APIs, creates the Cloud Storage bucket, creates
-the `APP_SECRET` secret, deploys Cloud Run from the `Dockerfile`, and deploys
-Firebase Hosting. When it finishes it prints your `https://<project>.web.app` URL.
+Until a webhook secret is configured in the app, the endpoint accepts unsigned
+requests; as soon as one is set, every call must carry the HMAC signature the
+script already computes.
 
-## Deploy (manual, if you prefer step by step)
+## Updating the app
 
-```bash
-PROJECT_ID=your-project-id
-REGION=us-central1
-BUCKET="${PROJECT_ID}-chorale-data"
+Push to GitHub (`main`), then in Render: *Manual Deploy* → *Deploy latest
+commit* (if automatic deploys are enabled, pushing is enough). Every deploy wipes
+the ephemeral disk, so the database is restored from B2 on the next boot —
+that is the normal, expected path.
 
-gcloud config set project "$PROJECT_ID"
-gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
-  cloudbuild.googleapis.com secretmanager.googleapis.com \
-  storage.googleapis.com firebase.googleapis.com
+## Backblaze B2 setup (one time)
 
-# Bucket for Litestream (and, optionally, uploads).
-gcloud storage buckets create "gs://${BUCKET}" --location="$REGION" --uniform-bucket-level-access
+1. Create a free account at <https://www.backblaze.com/cloud-storage> (no credit
+   card needed for sign-up).
+2. *Buckets* → *Create a Bucket*: name it (e.g. `la-porte-ador-data`), region of
+   your choice, *Files* type, private.
+3. Note the bucket's **S3 API endpoint** and **region** (bucket → *Endpoint*).
+4. *Application Keys* → *Add Application Key*: restrict it to that bucket, copy
+   the **key ID** and **applicationKey** (shown once).
+5. Paste the five values into Render as `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`,
+   `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, then redeploy.
 
-# Application secret (session hashing + encrypted integration secrets).
-# Keep it: changing it logs everyone out and makes stored secrets unreadable.
-printf '%s' "$(openssl rand -base64 48)" | \
-  gcloud secrets create chorale-app-secret --data-file=- --replication-policy=automatic
+Verify durability: after a few minutes of use, click *Restart* (or redeploy) in
+Render and check that accounts and data are still there. The Litestream prefix
+in the bucket is `chorale-db`.
 
-# Let the Cloud Run runtime service account read/write the bucket.
-PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-gcloud storage buckets add-iam-policy-binding "gs://${BUCKET}" \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/storage.objectAdmin"
+## Security checklist
 
-# Deploy the app (Cloud Build builds the Dockerfile in this folder).
-gcloud run deploy chorale-app \
-  --source . --region "$REGION" --allow-unauthenticated \
-  --min-instances 1 --max-instances 1 \
-  --execution-environment gen2 --cpu 1 --memory 1Gi \
-  --set-env-vars "NODE_ENV=production,DATA_DIR=/data,DATABASE_FILE=/data/chorale.db,WEB_DIST_DIR=/app/web/dist,HOST=0.0.0.0,PORT=8080,SESSION_COOKIE_SECURE=true,REPLICA_BUCKET=${BUCKET},REPLICA_PREFIX=chorale" \
-  --set-secrets "APP_SECRET=chorale-app-secret:latest"
-
-# Firebase Hosting front door.
-cp .firebaserc.example .firebaserc   # then set YOUR_GCP_PROJECT_ID
-firebase deploy --only hosting
-```
-
-## Create the first administrator
-
-On first boot there are no admins, so the server prints a one-time **setup token**
-and writes it to `/data/FIRST-ADMIN-SETUP.txt` (not reachable over the web — use
-the logs):
-
-```bash
-gcloud run services logs read chorale-app --region us-central1 --limit 80 | grep -i token
-```
-
-Then open `https://<project>.web.app/setup`, paste the token, and create the
-Chairman account. The token expires after 24 hours; redeploy/restart to reissue.
-
-> Prefer the built-in admins instead? They refuse to be created in production
-> unless you set `ALLOW_DEFAULT_ACCOUNTS=1`, which is **not recommended**. The
-> `/setup` flow is the intended path.
-
-## Persisting uploaded media (photos, audio, documents)
-
-The database is safe automatically (Litestream). **Uploaded files** live under
-`/data/storage`, which is ephemeral unless you mount a bucket. To persist them,
-mount a Cloud Storage bucket at `/data/storage` when deploying:
-
-```bash
-# Use a bucket that is NOT the Litestream replica (to keep SQLite and media apart).
-gcloud run services update chorale-app --region us-central1 \
-  --add-volume name=media,type=cloud-storage,bucket="${BUCKET}-media" \
-  --add-volume-mount volume=media,mount-path=/data/storage
-```
-
-Caveats: Cloud Run's Cloud Storage mount is suited to write-once media, not to a
-database (which is why SQLite uses Litestream instead). If you would rather keep
-deployment simple for now, skip this and re-upload media after a redeploy.
-
-## How the moving parts stay correct
-
-- **`min-instances=1`, `max-instances=1`** — a single SQLite writer + Litestream
-  pair. Do not scale out with a local SQLite file.
-- **`APP_SECRET`** must be stable. If it were regenerated (the app writes a local
-  `.app-secret` otherwise), every session would be invalidated and stored
-  integration secrets would become undecryptable. That is why it comes from
-  Secret Manager.
-- **`SESSION_COOKIE_SECURE=true`** — the site is HTTPS end to end, so the session
-  cookie is marked `Secure`.
-- On boot the container runs `migrate()` and `seed()` (reference data + the three
-  groups), exactly as in development.
-
-## Updating an already-deployed instance
-
-```bash
-git pull            # or re-upload the changed files
-gcloud run deploy chorale-app --source . --region us-central1   # picks up the same settings
-firebase deploy --only hosting   # only needed if firebase.json changed
-```
+- The repository is **public** — every secret must live only in the Render
+  dashboard, never in code. Sample passwords in the code are public knowledge;
+  set the four `*_PASSWORD` variables (or let the forced password change run).
+- Change the Chairman password immediately if the site was ever used with a
+  sample password.
+- `APP_SECRET` must be set and stable; otherwise a fresh random one is generated
+  on each boot and stored integration secrets become unreadable after a restart.
+- All administrator actions are recorded in the append-only audit log
+  (*Administration → Audit log*).
 
 ## Troubleshooting
 
-- **`.web.app` 500 / "Service not found"** — the rewrite in `firebase.json` names
-  the service and region; make sure `serviceId`/`region` match your Cloud Run
-  deploy. Redeploy Hosting after changing it.
-- **Data resets after redeploy** — `REPLICA_BUCKET` is unset, or the runtime
-  service account lacks `roles/storage.objectAdmin` on the bucket. Check the logs
-  for `[entrypoint]` lines.
-- **Everyone logged out after redeploy** — `APP_SECRET` changed. Restore the
-  original secret version.
-- **429 from Google** — general rate limiting is on; it is per-IP and generous,
-  but Firebase Hosting forwards the client IP via `x-forwarded-for`
-  (`trust proxy` is enabled server-side).
+- **Data reset after a redeploy** — the `S3_*` variables are missing/wrong, or
+  the start command is not `sh deploy/render-start.sh`. Check the logs for
+  `[render-start]` lines.
+- **Logs show `restore still failing … continuing with an empty local database`**
+  — B2 is unreachable or the key is wrong. Litestream keeps replicating the
+  current data; older snapshots stay in the bucket and can be recovered with
+  `litestream restore -timestamp`.
+- **Everyone logged out after a redeploy** — `APP_SECRET` changed; restore the
+  original value in the dashboard.
+- **A login demands a new password** — that account still carries the public
+  sample password; it must be replaced on first sign-in.
+- **429 responses** — per-IP rate limiting is active and generous; `trust proxy`
+  is enabled so client IPs are correct behind Render's proxy.
 
-## Running the container locally (optional smoke test)
+## Known limitations
+
+- **Mirrored uploads are not served after a redeploy.** Uploads are written to
+  the bucket as a mirror, but the server currently reads media from local disk
+  only. After a redeploy, previously uploaded photos/audio are no longer served
+  (re-upload them). The database — members, applications, songs, audit trail —
+  is fully durable.
+- Render free instances **spin down** after inactivity; the first request after
+  an idle period takes ~30–60 seconds.
+- Exactly one instance is expected: a local SQLite file must never be shared by
+  multiple writers.
+
+## Verified vs. not verified
+
+Verified locally (automated tests + live checks):
+
+- 30/30 unit tests, typecheck and production build.
+- Fresh production boot creates all four administrators (env passwords),
+  existing accounts are never reset on restart, sample passwords force a change.
+- `deploy/render-start.sh` without `S3_*` falls back to a plain start; with
+  `S3_*` it downloads Litestream, writes the config (env expansion verified
+  against real Backblaze B2 endpoints) and attempts the restore.
+- Live on Render: SPA + API + health check; Google Form webhook → notification →
+  approve → member + invitation link (form-to-credentials flow).
+
+Not verified end-to-end (no bucket was available during development):
+
+- Litestream restore/replication against a **real** B2 bucket (config and
+  endpoint reachability were verified against B2's real S3 API; a full
+  backup/restore cycle needs the live bucket).
+- The optional Docker image (`Dockerfile`, `deploy/entrypoint.sh`) — kept for
+  self-hosting, not used by the Render deployment.
+
+## Optional: Docker (self-hosting)
+
+`Dockerfile` + `deploy/entrypoint.sh` provide a container build that behaves the
+same way (Litestream with `S3_*`, or GCS with `REPLICA_BUCKET`):
 
 ```bash
 docker build -t chorale .
-docker run --rm -p 8080:8080 -e APP_SECRET=dev-secret-at-least-16-chars chorale
-# open http://localhost:8080  (no REPLICA_BUCKET → ephemeral, fine for a test)
+docker run --rm -p 8080:8080 \
+  -e APP_SECRET=dev-secret-at-least-16-chars \
+  -e S3_BUCKET=... -e S3_ENDPOINT=... -e S3_REGION=... \
+  -e S3_ACCESS_KEY_ID=... -e S3_SECRET_ACCESS_KEY=... \
+  -e ALLOW_DEFAULT_ACCOUNTS=1 chorale
 ```
+
+Without those variables the container is ephemeral — fine for a smoke test.
+
+> The legacy Firebase/Cloud Run files (`firebase.json`, `.firebaserc.example`,
+> `deploy/deploy.sh`, `deploy/hosting/`) are kept for reference only — they are
+> **not** part of the Render deployment and are unused.
