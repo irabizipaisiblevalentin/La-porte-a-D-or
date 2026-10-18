@@ -469,7 +469,11 @@ field mapping.
 
 ## Security notes
 
-- Passwords: scrypt with per-password salt; never logged.
+- Passwords: scrypt with per-password salt; never logged. The app also keeps an AES-256-GCM copy of
+  each account password (`users.password_enc`, key = `APP_SECRET`) so an administrator can read back
+  the credentials generated at approval and email them to the member — this is a deliberate,
+  documented trade-off: anyone with the database **and** `APP_SECRET` can recover member passwords.
+  Only an administrator who may edit the member can see it; it is never included in list responses.
 - Sessions: opaque random token, stored **hashed**; httpOnly cookie; rolling expiry; lockout.
 - Default accounts (`npm run seed:admins`) are **opt-in** and refuse to run under
   `NODE_ENV=production` unless `ALLOW_DEFAULT_ACCOUNTS=1` is set. On boot, that same flag only

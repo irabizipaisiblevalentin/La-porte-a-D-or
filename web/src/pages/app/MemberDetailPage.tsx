@@ -2,11 +2,15 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from "react"
 import { Link, useParams } from "react-router-dom"
 import {
   ArrowLeft,
+  Copy,
+  Eye,
+  EyeOff,
   Info,
   Mail,
   MapPin,
   Pencil,
   Phone,
+  Send,
   ShieldAlert,
   Upload,
   User,
@@ -75,6 +79,19 @@ interface MemberRow {
   email: string | null
   /** Sign-in name for accounts created without an email address. */
   username: string | null
+  /**
+   * Current sign-in password. Only present when the viewer may edit the member
+   * (or it is their own record) — the server withholds it otherwise.
+   */
+  sign_in_password?: string | null
+}
+
+/** Shape of `delivery` in the approval and send-credentials responses. */
+export interface CredentialDelivery {
+  sent: boolean
+  to: string | null
+  reason: "sent" | "no_email" | "not_configured" | "send_failed"
+  error?: string
 }
 
 interface MemberContact {
@@ -216,6 +233,11 @@ export function MemberDetailPage() {
     formData.append("file", file)
     return api.upload<{ photoPath: string }>(`/members/${id}/photo`, formData)
   })
+  const sendCredentials = useMutation(() =>
+    api.post<{ delivery: CredentialDelivery }>(`/members/${id}/send-credentials`),
+  )
+
+  const [revealed, setRevealed] = useState(false)
 
   useEffect(() => {
     if (!update.error) return
@@ -228,6 +250,16 @@ export function MemberDetailPage() {
     if (upload.error) toast.error(upload.error.message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upload.error])
+
+  useEffect(() => {
+    if (sendCredentials.error) toast.error(sendCredentials.error.message)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendCredentials.error])
+
+  // A password is revealed per visit and never for the next member.
+  useEffect(() => {
+    setRevealed(false)
+  }, [id])
 
   const detail = data?.member ?? null
   const member = detail?.member ?? null
@@ -340,6 +372,39 @@ export function MemberDetailPage() {
     reload()
   }
 
+  /** Emails the member their sign-in details again (or for the first time). */
+  async function onSendCredentials() {
+    const result = await sendCredentials.run()
+    if (!result) return
+    const { delivery } = result
+    if (delivery.sent) {
+      toast.success(`Sign-in details sent to ${delivery.to}.`)
+      return
+    }
+    if (delivery.reason === "not_configured") {
+      toast.error("Email delivery is not configured. Add the SMTP details in Settings → Integrations, then try again.")
+    } else if (delivery.reason === "no_email") {
+      toast.error("This member has no email address on file. Share the sign-in details directly.")
+    } else {
+      toast.error(`The email could not be sent${delivery.error ? `: ${delivery.error}` : "."}`)
+    }
+  }
+
+  async function copySignInDetails() {
+    if (!member) return
+    const lines = [
+      `Sign-in page: ${window.location.origin}/login`,
+      `Email or username: ${member.email ?? member.username ?? ""}`,
+    ]
+    if (member.sign_in_password) lines.push(`Password: ${member.sign_in_password}`)
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"))
+      toast.success("Sign-in details copied.")
+    } catch {
+      toast.error("Could not copy automatically. Select the text and copy it manually.")
+    }
+  }
+
   const breadcrumbs = [
     { label: "Dashboard", to: "/app" },
     { label: "Members", to: "/app/members" },
@@ -386,6 +451,17 @@ export function MemberDetailPage() {
             <Link to="/app/members" className="btn btn-outline btn-sm">
               <ArrowLeft size={15} /> All members
             </Link>
+            {canWrite && member.sign_in_password ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Send size={15} />}
+                loading={sendCredentials.saving}
+                onClick={onSendCredentials}
+              >
+                Send sign-in details
+              </Button>
+            ) : null}
             {canWrite ? (
               <Button variant="gold" size="sm" icon={<Pencil size={15} />} onClick={startEdit}>
                 Edit
@@ -454,6 +530,31 @@ export function MemberDetailPage() {
                 {member.username ?? "—"}
               </p>
             </div>
+            {member.sign_in_password ? (
+              <div className="sm:col-span-2">
+                <p className="muted text-xs font-medium uppercase tracking-wide">Sign-in password</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <code className="rounded bg-black/5 px-2 py-1 font-mono text-sm tracking-wide dark:bg-white/10">
+                    {revealed ? member.sign_in_password : "•".repeat(12)}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={revealed ? <EyeOff size={15} /> : <Eye size={15} />}
+                    onClick={() => setRevealed((value) => !value)}
+                    aria-label={revealed ? "Hide the password" : "Show the password"}
+                  >
+                    {revealed ? "Hide" : "Show"}
+                  </Button>
+                  <Button variant="ghost" size="sm" icon={<Copy size={15} />} onClick={copySignInDetails}>
+                    Copy
+                  </Button>
+                </div>
+                <p className="muted mt-1 text-xs">
+                  Generated for this member. Send it to them, or use “Send sign-in details” in the header.
+                </p>
+              </div>
+            ) : null}
             <div className="sm:col-span-2">
               <p className="muted text-xs font-medium uppercase tracking-wide">Phone</p>
               <p className="mt-0.5 flex items-center gap-2 text-sm">

@@ -19,6 +19,7 @@
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
     "multer": "^2.0.2",
+    "nodemailer": "^7.0.13",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@types/express": "^5.0.5",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

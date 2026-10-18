@@ -131,6 +131,13 @@ interface DecisionResponse {
   application?: ApplicationDetail
   member?: ApprovedMember | null
   credentials?: { username: string; password: string } | null
+  /** Outcome of emailing the sign-in details to the new member. */
+  delivery?: {
+    sent: boolean
+    to: string | null
+    reason: "sent" | "no_email" | "not_configured" | "send_failed"
+    error?: string
+  } | null
   duplicate?: boolean
 }
 
@@ -324,6 +331,16 @@ export function ApplicationDetailPage() {
   const canDecide = can("application.decide")
   const decided = application.status === "approved" || application.status === "rejected"
   const credentials = decisionResult?.credentials ?? null
+  const delivery = decisionResult?.delivery ?? null
+  const deliveryNote = !delivery
+    ? ""
+    : delivery.sent
+      ? `They were emailed to ${delivery.to}.`
+      : delivery.reason === "not_configured"
+        ? "No email was sent — email delivery is not configured yet. Add the SMTP details in Settings → Integrations, or hand these over yourself."
+        : delivery.reason === "no_email"
+          ? "No email was sent — the applicant did not leave an email address. Hand these over yourself."
+          : `No email was sent${delivery.error ? ` (${delivery.error})` : ""}. Hand these over yourself.`
 
   return (
     <div className="flex flex-col gap-6">
@@ -414,8 +431,8 @@ export function ApplicationDetailPage() {
                   <Info size={16} className="mt-0.5 shrink-0 text-gold-600 dark:text-gold-300" aria-hidden />
                   <p className="text-sm">
                     <strong className="font-semibold">Sign-in details were generated automatically.</strong>{" "}
-                    No email was sent — write these down and give them to the member. The password is shown only
-                    once; they will be asked to choose their own the first time they sign in.
+                    {deliveryNote}{" "}
+                    They also stay on the member's record, so they can be read out or emailed again later.
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">

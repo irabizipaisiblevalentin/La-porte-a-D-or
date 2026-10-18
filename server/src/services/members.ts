@@ -2,6 +2,7 @@ import { config } from "../config.js"
 import { all, one, run, transaction } from "../db/index.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
+import { rememberedPassword } from "./credentials.js"
 import { getGroupById } from "./groups.js"
 import { isPlaceholderEmail } from "./usernames.js"
 
@@ -96,6 +97,11 @@ export interface FullMember {
     email: string | null
     /** Sign-in name for accounts created without an email address. */
     username: string | null
+    /**
+     * Sign-in password, present only when the caller passed
+     * `includeCredentials: true` and the account has one on file.
+     */
+    sign_in_password?: string | null
   }
   contact: Record<string, unknown> | null
   senior: Record<string, unknown> | null
@@ -105,9 +111,14 @@ export interface FullMember {
 
 /**
  * Loads a member with all profile facets. Sensitive junior fields are removed
- * unless the viewer holds `member.sensitive.read` for the junior group.
+ * unless the viewer holds `member.sensitive.read` for the junior group, and the
+ * account password is omitted unless `includeCredentials` is set — the route
+ * decides that from the caller's permission, never the query string.
  */
-export function getMemberDetail(memberId: string, options: { includeSensitive: boolean }): FullMember | null {
+export function getMemberDetail(
+  memberId: string,
+  options: { includeSensitive: boolean; includeCredentials?: boolean },
+): FullMember | null {
   const member = getMember(memberId)
   if (!member) return null
   const contact = one<Record<string, unknown>>(
@@ -138,11 +149,16 @@ export function getMemberDetail(memberId: string, options: { includeSensitive: b
       }
     : junior
 
+  // The reversible copy of the member's current password, so an administrator
+  // can read the credentials out to them. Omitted for callers that did not ask.
+  const signInPassword = options.includeCredentials ? rememberedPassword(member.user_id) : null
+
   return {
     member: {
       ...member,
       email: accountEmail ?? (contact?.email as string | null) ?? null,
       username: account?.username ?? null,
+      ...(options.includeCredentials ? { sign_in_password: signInPassword } : {}),
     },
     contact: contact ?? null,
     senior: senior ?? null,

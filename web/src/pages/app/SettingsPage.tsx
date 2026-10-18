@@ -401,8 +401,8 @@ function IntegrationsTab({
         <p className="font-medium">Integrations are awaiting setup until configured</p>
         <p className="muted mt-0.5">
           Each integration reports its true status below. Secrets are stored encrypted on the server and are never sent
-          back to the browser. Email delivery stays off until an SMTP host is configured; until then notifications appear
-          in-app only.
+          back to the browser. Approval emails (the member's sign-in details) go out once an SMTP host and a sender
+          address are set; until then the credentials are shown in the app and notifications appear in-app only.
         </p>
       </div>
 

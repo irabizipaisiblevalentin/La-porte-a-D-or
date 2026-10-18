@@ -5,6 +5,8 @@ import { one, all, run, transaction } from "../db/index.js"
 import { getGroupById, listGroups, listVoiceSections } from "../services/groups.js"
 import { assertGroupAccess, permittedGroupIds, requireAuth, requirePermission } from "../middleware/auth.js"
 import { createMemberRecord, getMember, getMemberDetail } from "../services/members.js"
+import { rememberedPassword } from "../services/credentials.js"
+import { deliverLoginDetails } from "../services/onboarding.js"
 import { badRequest, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { recordAudit } from "../lib/audit.js"
@@ -75,7 +77,7 @@ membersRouter.get("/me", requireAuth, (req, res) => {
     res.json({ member: null })
     return
   }
-  const detail = getMemberDetail(req.auth!.memberId, { includeSensitive: true })
+  const detail = getMemberDetail(req.auth!.memberId, { includeSensitive: true, includeCredentials: true })
   if (!detail) throw notFound("Your member record could not be found.")
   res.json({ member: detail })
 })
@@ -123,7 +125,7 @@ membersRouter.patch("/me", requireAuth, (req, res) => {
     action: "member.self_update", entityType: "member", entityId: member.id,
     summary: `${member.full_name} updated their own profile`, ip: req.ip,
   })
-  res.json({ member: getMemberDetail(member.id, { includeSensitive: true }) })
+  res.json({ member: getMemberDetail(member.id, { includeSensitive: true, includeCredentials: true }) })
 })
 
 const adminCreateSchema = z.object({
@@ -163,7 +165,14 @@ membersRouter.get("/:id", requireAuth, requirePermission("member.read"), (req, r
   if (!member) throw notFound("That member does not exist.")
   if (!canActOnMember(req.auth!, "member.read", member)) throw forbidden()
   const includeSensitive = can(req.auth!, "member.sensitive.read", groupScope(member.group_id))
-  res.json({ member: getMemberDetail(member.id, { includeSensitive: includeSensitive || req.auth!.memberId === member.id }) })
+  res.json({
+    member: getMemberDetail(member.id, {
+      includeSensitive: includeSensitive || req.auth!.memberId === member.id,
+      // Anyone who may edit the record (or owns it) can read the sign-in details
+      // back out. View-only roles never receive them.
+      includeCredentials: canActOnMember(req.auth!, "member.write", member),
+    }),
+  })
 })
 
 const adminUpdateSchema = z.object({
@@ -215,7 +224,48 @@ membersRouter.patch("/:id", requireAuth, requirePermission("member.write"), (req
     summary: `Member ${member.member_no} updated`, detail: { fields: Object.keys(input) }, ip: req.ip,
   })
   const includeSensitive = can(req.auth!, "member.sensitive.read", groupScope(member.group_id))
-  res.json({ member: getMemberDetail(member.id, { includeSensitive }) })
+  res.json({
+    member: getMemberDetail(member.id, {
+      includeSensitive,
+      includeCredentials: canActOnMember(req.auth!, "member.write", member),
+    }),
+  })
+})
+
+/**
+ * Emails the member their sign-in details again — the automatic message at
+ * approval, on demand. Useful after an address is corrected, or the first time
+ * a relay is configured.
+ */
+membersRouter.post("/:id/send-credentials", requireAuth, requirePermission("member.write"), async (req, res) => {
+  const member = getMember(String(req.params.id))
+  if (!member) throw notFound("That member does not exist.")
+  if (!canActOnMember(req.auth!, "member.write", member)) throw forbidden()
+  const account = member.user_id
+    ? one<{ email: string; username: string | null }>("SELECT email, username FROM users WHERE id = ?", member.user_id)
+    : undefined
+  if (!account) throw badRequest("This member has no sign-in account yet.")
+  const password = rememberedPassword(member.user_id)
+  if (!password) throw badRequest("No password is stored for this member. Issue a password reset instead.")
+
+  const delivery = await deliverLoginDetails({
+    fullName: member.full_name,
+    username: account.username,
+    email: account.email,
+    password,
+    groupName: member.group_name,
+    signInUrl: `${req.protocol}://${req.get("host") ?? ""}`,
+  })
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "member.credentials_sent", entityType: "member", entityId: member.id,
+    summary: delivery.sent
+      ? `Sign-in details for ${member.full_name} emailed to ${delivery.to}`
+      : `Sign-in details for ${member.full_name} were not emailed (${delivery.reason})`,
+    detail: { reason: delivery.reason, to: delivery.to },
+    ip: req.ip,
+  })
+  res.json({ delivery })
 })
 
 membersRouter.post("/:id/photo", requireAuth, requirePermission("member.write"), imageUpload.single("file"), (req, res) => {

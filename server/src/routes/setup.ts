@@ -10,8 +10,9 @@ import { one, run } from "../db/index.js"
 import { recordAudit } from "../lib/audit.js"
 import { forbidden, conflict } from "../lib/errors.js"
 import { parse } from "../lib/http.js"
-import { hashPassword, hashToken, id, token, validatePasswordStrength } from "../lib/security.js"
+import { hashToken, id, token, validatePasswordStrength } from "../lib/security.js"
 import { isoPlusMs, isExpired, nowIso } from "../lib/time.js"
+import { hashAndRemember } from "../services/credentials.js"
 
 export const setupRouter: Router = Router()
 
@@ -94,11 +95,12 @@ setupRouter.post("/", (req, res) => {
   const userId = id()
   const timestamp = nowIso()
 
+  const stored = hashAndRemember(input.password)
   run(
-    `INSERT INTO users (id, email, email_normalized, password_hash, display_name, status, must_change_password,
-                        failed_login_count, last_login_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'active', 0, 0, NULL, ?, ?)`,
-    userId, input.email.trim(), emailNormalized, hashPassword(input.password), input.fullName.trim(), timestamp, timestamp,
+    `INSERT INTO users (id, email, email_normalized, password_hash, password_enc, display_name, status,
+                        must_change_password, failed_login_count, last_login_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', 0, 0, NULL, ?, ?)`,
+    userId, input.email.trim(), emailNormalized, stored.hash, stored.enc, input.fullName.trim(), timestamp, timestamp,
   )
   run("INSERT INTO user_roles (user_id, role_id, granted_by, granted_at) VALUES (?, 'role_chairman', NULL, ?)", userId, timestamp)
   run("UPDATE setup_tokens SET used_at = ?, used_by = ? WHERE id = ?", timestamp, userId, setupRow.id)

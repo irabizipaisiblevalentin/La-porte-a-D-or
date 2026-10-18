@@ -203,31 +203,48 @@ the sign-in account, and returns an automatically generated **username and passw
 administrator — the username comes from the applicant's full name, and is what they sign in with when
 no email address was given. The member is asked to choose their own password at first sign-in.
 
+The same credentials are **emailed to the applicant automatically at approval** (see
+[Email (SMTP)](#email-smtp)). When the applicant left the email question blank, or no relay is
+configured, nothing is sent and the approving administrator is told why — the credentials stay on the
+application screen and on the member's record.
+
+The password is readable for the whole life of the account: the member's record shows it under
+**Sign-in password**, and the administrator who manages that member can **Send sign-in details** again
+at any time. It is stored as AES-256-GCM ciphertext in `users.password_enc` (key: `APP_SECRET`) next
+to the one-way scrypt verifier in `users.password_hash`, and is rewritten every time the password
+changes — approval, self-service change, and reset.
+
 ---
 
 ## Email (SMTP)
 
-**Purpose:** send invitation, password-reset and notification emails. **This is not configured by
-default, and nothing here is required for the platform to work.**
+**Purpose:** email sign-in details to an approved member, plus invitation, password-reset and
+notification emails. **This is not configured by default, and nothing here is required for the
+platform to work.**
 
 Until SMTP is configured:
 
 - Notifications are delivered **in-app only** — this is real and works.
 - Invitation links and password-reset links are **returned to the administrator** in the UI (with a
   copy button) so they can be shared manually. The UI states plainly that no email was sent.
+- Approval does not email the new member. The generated username and password stay on the application
+  screen and on the member's record, so they can be handed over by hand. Every member record also has
+  a **Send sign-in details** button that starts working the moment a relay is configured.
 
 ### Steps
 
 1. Obtain SMTP credentials from your mail provider (e.g. a transactional provider or your domain's
-   mail host).
+   mail host). For Gmail: turn on 2-Step Verification, create an **App password**, then use host
+   `smtp.gmail.com` and port `587` with that 16-character password.
 2. In **Settings → Integrations**, set:
    - **Email (SMTP) host** — `smtp_host`
    - **Email (SMTP) port** — `smtp_port` (587 STARTTLS, or 465 implicit TLS)
    - **Email (SMTP) username** — `smtp_user`
    - **Email (SMTP) password** — `smtp_password` (stored encrypted)
    - **Email sender address** — `smtp_from`
-3. Whenever an SMTP host is present the app reports email delivery as available; the settings screen
-   reflects the computed status.
+3. Once a host **and** a sender address are present the app reports email delivery as available,
+   approvals email the member their credentials, and the settings screen reflects the computed
+   status. Every attempt is recorded in `integration_runs` and the audit log.
 
 ---
 

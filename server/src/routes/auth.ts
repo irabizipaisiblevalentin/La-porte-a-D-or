@@ -18,6 +18,8 @@ import { hashPassword, hashToken, id, token, validatePasswordStrength, verifyPas
 import { isoPlusMs, isExpired, nowIso } from "../lib/time.js"
 import { authRateLimit } from "../middleware/rate-limit.js"
 import { requireAuth } from "../middleware/auth.js"
+import { hashAndRemember } from "../services/credentials.js"
+import { emailDeliveryConfigured } from "../services/email.js"
 import { notifyMany } from "../services/notifications.js"
 import { isPlaceholderEmail, normalizeUsername } from "../services/usernames.js"
 
@@ -130,8 +132,9 @@ authRouter.post("/password", requireAuth, (req, res) => {
   const strength = validatePasswordStrength(input.newPassword)
   if (!strength.ok) throw badRequest("Choose a stronger password.", { fields: { newPassword: strength.errors.join(" ") } })
 
-  run("UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?",
-    hashPassword(input.newPassword), nowIso(), user.id)
+  const stored = hashAndRemember(input.newPassword)
+  run("UPDATE users SET password_hash = ?, password_enc = ?, must_change_password = 0, updated_at = ? WHERE id = ?",
+    stored.hash, stored.enc, nowIso(), user.id)
   recordAudit({
     actorId: user.id,
     actorName: user.display_name,
@@ -211,8 +214,9 @@ authRouter.post("/password/reset", authRateLimit(), (req, res) => {
   if (!strength.ok) throw badRequest("Choose a stronger password.", { fields: { password: strength.errors.join(" ") } })
 
   transaction(() => {
-    run("UPDATE users SET password_hash = ?, must_change_password = 0, failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
-      hashPassword(input.password), nowIso(), reset.user_id)
+    const stored = hashAndRemember(input.password)
+    run("UPDATE users SET password_hash = ?, password_enc = ?, must_change_password = 0, failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
+      stored.hash, stored.enc, nowIso(), reset.user_id)
     run("UPDATE password_resets SET used_at = ? WHERE id = ?", nowIso(), reset.id)
   })
   revokeAllSessions(reset.user_id)
@@ -250,8 +254,9 @@ authRouter.post("/invitation/:token", authRateLimit(), (req, res) => {
   if (!strength.ok) throw badRequest("Choose a stronger password.", { fields: { password: strength.errors.join(" ") } })
 
   transaction(() => {
-    run("UPDATE users SET password_hash = ?, status = 'active', must_change_password = 0, failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
-      hashPassword(input.password), nowIso(), invitation.user_id)
+    const stored = hashAndRemember(input.password)
+    run("UPDATE users SET password_hash = ?, password_enc = ?, status = 'active', must_change_password = 0, failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?",
+      stored.hash, stored.enc, nowIso(), invitation.user_id)
     run("UPDATE account_invitations SET used_at = ? WHERE id = ?", nowIso(), invitation.id)
   })
   recordAudit({
@@ -285,11 +290,4 @@ function loadInvitation(rawToken: string): InvitationRow | null {
   )
   if (!row || row.used_at || isExpired(row.expires_at)) return null
   return row
-}
-
-export function emailDeliveryConfigured(): boolean {
-  const row = one<{ value_plain: string | null; value_encrypted: string | null; status: string }>(
-    "SELECT value_plain, value_encrypted, status FROM integration_settings WHERE key = 'smtp_host'",
-  )
-  return Boolean(row && row.status === "configured")
 }

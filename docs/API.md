@@ -52,8 +52,9 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /members` `[perm: member.write/{group}]`
 - `GET /members/me` `[own]`
 - `PATCH /members/me` `[perm: member.write/own]` `{ contact?, senior?, junior?, support? }`
-- `GET /members/:id` `[perm: member.read/{group}|own]`
+- `GET /members/:id` `[perm: member.read/{group}|own]` — includes `member.sign_in_password` only when the caller may write that member (their group's administrator, or the member themselves)
 - `PATCH /members/:id` `[perm: member.write/{group}]`
+- `POST /members/:id/send-credentials` `[perm: member.write/{group}|own]` — re-emails the member their sign-in name and password; returns `{ delivery: { sent, to, reason } }` where `reason` is `sent`, `no_email`, `not_configured` or `send_failed`
 - `POST /members/:id/photo` `[perm: member.write/{group}|own]` multipart `file`
 
 ## Applications
@@ -62,7 +63,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /applications` `[perm: application.review/{group}]` manual entry `{ fullName, email, phone?, groupId, answers? }`
 - `PATCH /applications/:id` `[perm: application.review/{group}]` `{ status?, assignedGroupId?, note? }` (records a review row)
 - `POST /applications/:id/decision` `[perm: application.decide/{group}]` `{ decision: "approve"|"reject", note?, assignedGroupId? }`
-  - approve -> creates exactly one member + invitation, returns `{ member, invitation: { url }, user }`; the applicant's date of birth, gender, voice section, address (region/city/address) and group-specific answers (occupation, class, emergency contact, skills, …) are copied onto the member record from the application answers
+  - approve -> creates exactly one member + sign-in account and returns `{ member, user, credentials: { username, password }, delivery }`; the generated username comes from the full name and both the username and password remain readable on the member record; `delivery` reports the automatic email (`sent` / `no_email` / `not_configured` / `send_failed`). The applicant's date of birth, gender, voice section, address (region/city/address) and group-specific answers (occupation, class, emergency contact, skills, …) are copied onto the member record from the application answers
   - reject -> preserves application, sets status rejected
 - `POST /applications/:id/documents` `[perm: application.review/{group}]` multipart `file`
 - `POST /applications/webhook` (integration; when `google_webhook_secret` is set, sign with `x-chorale-signature: <hex HMAC-SHA256 of the raw body>`, or the raw secret) — idempotent on `externalId`; infers name/email/phone/group from the answers and notifies the Chairman + that group's admin

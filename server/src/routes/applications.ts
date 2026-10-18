@@ -5,15 +5,17 @@ import { all, one, run, transaction } from "../db/index.js"
 import { recordAudit } from "../lib/audit.js"
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
-import { constantTimeEqual, generatePassword, hashPassword, hmacSha256Hex, id } from "../lib/security.js"
+import { constantTimeEqual, generatePassword, hmacSha256Hex, id } from "../lib/security.js"
 import { decryptSecret } from "../lib/secrets-box.js"
 import { nowIso } from "../lib/time.js"
 import { assertGroupAccess, permittedGroupIds, requireAuth, requirePermission } from "../middleware/auth.js"
 import { documentUpload } from "../middleware/upload.js"
 import { applicantProfileFromAnswers } from "../services/application-profile.js"
+import { hashAndRemember } from "../services/credentials.js"
 import { getGroupById, getGroupByKey, type GroupRow } from "../services/groups.js"
 import { createMemberRecord, getMemberDetail } from "../services/members.js"
 import { groupAdminUserIds, notifyMany } from "../services/notifications.js"
+import { deliverLoginDetails } from "../services/onboarding.js"
 import { cleanDisplayName, normalizeUsername, placeholderEmail } from "../services/usernames.js"
 import { saveUpload } from "../services/uploads.js"
 
@@ -712,10 +714,20 @@ const decisionSchema = z.object({
 })
 
 type ApprovalOutcome =
-  | { created: true; memberId: string; userId: string; username: string; initialPassword: string }
+  | {
+      created: true
+      memberId: string
+      userId: string
+      username: string
+      initialPassword: string
+      /** Carried out of the transaction so the member can be emailed afterwards. */
+      fullName: string
+      email: string
+      groupName: string
+    }
   | { created: false; memberId: string; userId: string | null }
 
-applicationsRouter.post("/:id/decision", requireAuth, requirePermission("application.decide"), (req, res) => {
+applicationsRouter.post("/:id/decision", requireAuth, requirePermission("application.decide"), async (req, res) => {
   const application = getApplication(String(req.params.id))
   if (!application) throw notFound("That application does not exist.")
   assertApplicationAccess(req.auth!, "application.decide", application)
@@ -821,11 +833,15 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     // first time they sign in.
     const userId = id()
     const initialPassword = generatePassword()
+    // `hash` verifies the sign-in, `enc` keeps the password readable so the
+    // administrator (and the member's own record) can show it again later.
+    const { hash: passwordHash, enc: passwordEnc } = hashAndRemember(initialPassword)
     run(
-      `INSERT INTO users (id, email, email_normalized, username, username_normalized, password_hash, display_name,
-                          status, must_change_password, failed_login_count, last_login_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, 0, NULL, ?, ?)`,
-      userId, email, emailNormalized, username, usernameNormalized, hashPassword(initialPassword),
+      `INSERT INTO users (id, email, email_normalized, username, username_normalized, password_hash, password_enc,
+                          display_name, status, must_change_password, failed_login_count, last_login_at,
+                          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, 0, NULL, ?, ?)`,
+      userId, email, emailNormalized, username, usernameNormalized, passwordHash, passwordEnc,
       fresh.full_name, timestamp, timestamp,
     )
     run(
@@ -892,15 +908,47 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
       ip: req.ip,
     })
 
-    return { created: true as const, memberId: created.id, userId, username, initialPassword }
+    return {
+      created: true as const,
+      memberId: created.id,
+      userId,
+      username,
+      initialPassword,
+      fullName: fresh.full_name,
+      // The account email, which is the placeholder for a name-only applicant.
+      email,
+      groupName: group.name,
+    }
   })
 
   if (outcome.created) {
+    // Deliver the credentials, then answer. Approval is already committed, so a
+    // mail failure changes only what the administrator is told — never the
+    // member record.
+    const delivery = await deliverLoginDetails({
+      fullName: outcome.fullName,
+      username: outcome.username,
+      email: outcome.email,
+      password: outcome.initialPassword,
+      groupName: outcome.groupName,
+      signInUrl: `${req.protocol}://${req.get("host") ?? ""}`,
+    })
+
+    recordAudit({
+      actorId: req.auth!.id, actorName: req.auth!.displayName,
+      action: "application.credentials_delivered", entityType: "application", entityId: application.id,
+      summary: delivery.sent
+        ? `Sign-in details for ${outcome.fullName} emailed to ${delivery.to}`
+        : `Sign-in details for ${outcome.fullName} were not emailed (${delivery.reason})`,
+      detail: { username: outcome.username, to: delivery.to, reason: delivery.reason, error: delivery.error ?? null },
+      ip: req.ip,
+    })
+
     res.status(201).json({
-      member: getMemberDetail(outcome.memberId, { includeSensitive: true }),
+      member: getMemberDetail(outcome.memberId, { includeSensitive: true, includeCredentials: true }),
       user: loadAuthUser(outcome.userId),
-      // Credentials generated at approval. The password is shown once, here.
       credentials: { username: outcome.username, password: outcome.initialPassword },
+      delivery,
     })
     return
   }
