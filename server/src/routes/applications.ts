@@ -700,6 +700,14 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     transaction(() => {
       const fresh = getApplication(application.id)
       if (!fresh) throw notFound("That application does not exist.")
+      // An approved application owns a member record and (possibly) a live
+      // account. Reverting it to "rejected" would leave an active member under a
+      // rejected application, with no API able to correct the state again.
+      if (fresh.member_id || fresh.status === "approved") {
+        throw conflict(
+          "This application has already been approved and its member account exists. Deactivate the member instead of rejecting the application.",
+        )
+      }
       run(
         `UPDATE applications SET status = 'rejected', reviewed_by = ?, reviewed_at = ?, decision_note = ?, updated_at = ?
           WHERE id = ?`,
@@ -738,6 +746,32 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     if (!fresh) throw notFound("That application does not exist.")
     if (fresh.member_id) {
       const linked = one<{ user_id: string | null }>("SELECT user_id FROM members WHERE id = ?", fresh.member_id)
+      // Re-approving repairs an application whose status drifted away from its
+      // member (e.g. it was rejected after approval in an earlier release): the
+      // application and the member it points at can never disagree.
+      if (fresh.status !== "approved") {
+        const repairAt = nowIso()
+        run(
+          `UPDATE applications SET status = 'approved', reviewed_by = ?, reviewed_at = ?, decision_note = ?,
+                                  updated_at = ?
+            WHERE id = ?`,
+          req.auth!.id, repairAt, input.note ?? fresh.decision_note, repairAt, fresh.id,
+        )
+        run(
+          `INSERT INTO application_reviews (id, application_id, actor_id, action, from_status, to_status,
+                                            from_group_id, to_group_id, notes, created_at)
+           VALUES (?, ?, ?, 'approve', ?, 'approved', ?, ?, ?, ?)`,
+          id(), fresh.id, req.auth!.id, fresh.status, effectiveGroupId(fresh),
+          effectiveGroupId(fresh), input.note ?? fresh.decision_note, repairAt,
+        )
+        recordAudit({
+          actorId: req.auth!.id, actorName: req.auth!.displayName,
+          action: "application.approve", entityType: "application", entityId: fresh.id,
+          summary: `Application re-confirmed for ${fresh.full_name}; status corrected to approved`,
+          detail: { memberId: fresh.member_id, correctedFrom: fresh.status },
+          ip: req.ip,
+        })
+      }
       return { created: false, memberId: fresh.member_id, userId: linked?.user_id ?? null }
     }
 
