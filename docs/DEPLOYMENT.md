@@ -223,12 +223,14 @@ Verified locally (automated tests + live checks):
   against real Backblaze B2 endpoints) and attempts the restore.
 - Live on Render: SPA + API + health check; Google Form webhook → notification →
   approve → member + invitation link (form-to-credentials flow).
+- **Litestream against the real Backblaze B2 bucket**: a test database was
+  replicated to the bucket (`litestream replicate -once`), the local file was
+  deleted, and `litestream restore` brought all 501 rows back correctly with the
+  production credentials (bucket `la-port-dor-data`, region `us-east-005`). The
+  test objects were then deleted, leaving the bucket empty.
 
-Not verified end-to-end (no bucket was available during development):
+Not verified end-to-end:
 
-- Litestream restore/replication against a **real** B2 bucket (config and
-  endpoint reachability were verified against B2's real S3 API; a full
-  backup/restore cycle needs the live bucket).
 - The optional Docker image (`Dockerfile`, `deploy/entrypoint.sh`) — kept for
   self-hosting, not used by the Render deployment.
 

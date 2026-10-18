@@ -17,6 +17,11 @@ logs/
 !.env.example
 .firebaserc
 
+# Local notes holding real deployment secrets (Render/B2) — never commit.
+RENDER-ENV.txt
+render-env*.txt
+*-ENV.txt
+
 .DS_Store
 Thumbs.db
 .idea/

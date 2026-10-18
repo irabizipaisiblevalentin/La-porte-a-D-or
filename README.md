@@ -443,12 +443,11 @@ field mapping.
   routes and size/type validation exist; uploads were not exercised end-to-end in these tests.
 - Attendance rate arithmetic beyond the default policy values.
 - **The Render deployment** — the live service was verified to serve the built SPA, `/api/health`
-  and a real administrator sign-in over https. The durable-storage path was checked only as far as
-  this environment allows: `deploy/render-start.sh` falls back correctly without `S3_*`, downloads
-  Litestream v0.5.17, and its config format (including Backblaze B2 endpoint/region/path-style
-  options and litestream's `${ENV}` expansion) was validated against Backblaze's real S3 API. A full
-  **backup/restore cycle against a real bucket** could not be run here (no bucket available) and
-  remains to be confirmed after the first B2 restart. The optional Docker image (`Dockerfile`,
+  and a real administrator sign-in over https. `deploy/render-start.sh` falls back correctly without
+  `S3_*` and takes the Litestream path with them. The durable-storage path was verified **against the
+  real Backblaze B2 bucket** with the production credentials: `litestream replicate -once` uploaded a
+  test database, the local file was deleted, and `litestream restore` returned all 501 rows intact
+  (test objects were removed afterwards). The optional Docker image (`Dockerfile`,
   `deploy/entrypoint.sh`) was never built — no `docker` CLI in this environment.
 
 ---
