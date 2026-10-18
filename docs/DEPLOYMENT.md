@@ -28,7 +28,7 @@ Service → *Environment* / *Build & Deploy*:
 | Setting | Value |
 | --- | --- |
 | Runtime | Node |
-| Build Command | `npm ci && npm run build` |
+| Build Command | `npm ci --include=dev && npm run build` |
 | Start Command | `sh deploy/render-start.sh` |
 | Health Check Path | `/api/health` |
 
@@ -185,6 +185,10 @@ in the bucket is `chorale-db`.
 
 ## Troubleshooting
 
+- **Build fails with `tsc`/`vite` not found** — `NODE_ENV=production` is set for
+  the app, and Render applies environment variables during the build as well, so
+  a plain `npm ci` skips devDependencies (which the build needs). That is why the
+  build command is `npm ci --include=dev && npm run build`.
 - **Data reset after a redeploy** — the `S3_*` variables are missing/wrong, or
   the start command is not `sh deploy/render-start.sh`. Check the logs for
   `[render-start]` lines.

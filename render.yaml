@@ -11,7 +11,7 @@ services:
     name: la-porte-ador
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: sh deploy/render-start.sh
     healthCheckPath: /api/health
     envVars:

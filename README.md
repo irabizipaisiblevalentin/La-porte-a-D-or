@@ -216,7 +216,7 @@ a **Backblaze B2** bucket with **Litestream** (`deploy/render-start.sh`); on boo
 restored from the bucket before the app starts. Set in the Render dashboard:
 
 ```
-Build Command    npm ci && npm run build
+Build Command    npm ci --include=dev && npm run build
 Start Command    sh deploy/render-start.sh
 Health Check     /api/health
 
