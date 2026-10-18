@@ -198,6 +198,10 @@ Either way, approving an application does not depend on the photo being present.
 In both options, submitting the form **never** creates an account. It only creates an application
 record that must be reviewed and approved by an administrator.
 
+The form's email question is **optional**. Approving an application always creates the member and
+the account invitation; the applicant's **username** (derived from their full name) is returned with
+the invitation link, and is what they sign in with when no email address was given.
+
 ---
 
 ## Email (SMTP)

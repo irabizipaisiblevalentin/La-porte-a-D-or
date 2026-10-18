@@ -326,13 +326,21 @@ Submitting the form never creates an account. Only an approve decision — which
 `application.decide` permission at the correct group scope — creates a member and an invitation, in
 a single transaction, and writes an audit entry.
 
+**Signing in.** The form's email question is optional. Every approved applicant receives a username
+derived from their full name (`Irabizi Valentin`, or `Irabizi Valentin 2` if that name is already
+taken), so they can sign in with either their email address or that username. When an applicant left
+the email blank, the account stores a reserved, non-routable placeholder address
+(`…@no-email.invalid`) and the username is the only way in; the login, invite and approval screens
+all show it. The lookup ignores case, accents and spacing.
+
 **Which administrator sees a submission.** The webhook reads the applicant's name, email/phone and
 the group from the Google Form answers (a flat `"Question": "Answer"` payload works as-is). The
 group answer — *Junior*, *Senior*, or *Support member* — is mapped to the official group, so the
 application lands in that group's queue: **Junior Admin** sees junior applications, **Members Admin**
 sees members/support applications, and the **Chairman** sees every application across all three
-groups. The Chairman and the group's own administrator are notified the moment an application
-arrives; the Chairman can always route an unassigned submission by choosing a group at approval.
+groups. Only the group's own administrator is notified the moment an application arrives, and only
+they can approve or reject it — the Chairman oversees the queue but never decides. A group
+administrator can always route an unassigned submission by choosing a group at approval.
 
 Approving an application stores the applicant's details on the new member: date of birth, gender,
 voice section, province/district/sector (as region/city/address), occupation and singing experience
