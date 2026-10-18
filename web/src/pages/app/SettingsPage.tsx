@@ -329,7 +329,7 @@ function GeneralTab({
                     </option>
                   ))}
                 </Select>
-              ) : item.key === "public.about" ? (
+              ) : item.key === "public.about" || item.key === "chairman.founders" ? (
                 <Textarea
                   id={`setting-${item.key}`}
                   value={value}

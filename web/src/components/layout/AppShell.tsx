@@ -274,6 +274,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Brand compact />
           </div>
           <GlobalSearch />
+          <Link
+            to="/app/search"
+            className="btn btn-ghost btn-sm md:hidden"
+            aria-label="Search"
+          >
+            <Search size={17} />
+          </Link>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
             <EnableNotificationsButton permission={notifications.permission} onEnable={notifications.request} />

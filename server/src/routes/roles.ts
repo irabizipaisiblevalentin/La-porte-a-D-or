@@ -19,11 +19,12 @@ interface GrantRow {
 
 const ROLE_ORDER = `CASE r.key
   WHEN 'chairman' THEN 1
-  WHEN 'junior_admin' THEN 2
-  WHEN 'members_admin' THEN 3
-  WHEN 'senior_singer' THEN 4
-  WHEN 'junior_singer' THEN 5
-  WHEN 'support_member' THEN 6
+  WHEN 'senior_leader' THEN 2
+  WHEN 'junior_admin' THEN 3
+  WHEN 'members_admin' THEN 4
+  WHEN 'senior_singer' THEN 5
+  WHEN 'junior_singer' THEN 6
+  WHEN 'support_member' THEN 7
   ELSE 99
 END`
 

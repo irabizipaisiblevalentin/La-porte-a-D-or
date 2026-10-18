@@ -72,6 +72,7 @@ const APP_SETTINGS = [
   { key: "public.contact_phone", value: "", label: "Public contact phone", description: "Shown on the public landing page when set." },
   { key: "public.about", value: "", label: "Public introduction", description: "Short introduction of the choir shown on the landing page." },
   { key: "public.gallery_enabled", value: "true", label: "Show gallery on landing page", description: "Display uploaded choir photographs on the public landing page." },
+  { key: "chairman.founders", value: "[]", label: "Founders of the choir", description: "The founding members listed in the Chairman's dashboard section. A JSON list of { name, role, photo } objects, e.g. [{\"name\":\"Jane A\",\"role\":\"Founder\",\"photo\":\"\"}]. Leave empty for none." },
 ]
 
 export function seed(log: (message: string) => void = () => {}): void {

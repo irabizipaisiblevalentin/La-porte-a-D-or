@@ -178,7 +178,7 @@ export function ContactChairman() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold shadow-lg transition hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        className="fixed right-5 z-40 flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold shadow-lg transition hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 bottom-[calc(1.25rem+env(safe-area-inset-bottom))]"
         style={{ background: "var(--color-gold-400)", color: "#221a06" }}
         aria-label="Message the Chairman"
       >

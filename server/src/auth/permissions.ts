@@ -82,8 +82,30 @@ export const ROLES: RoleDef[] = [
   {
     key: "chairman",
     name: "Chairman",
-    description: "Chairman of the choir — the founder and supreme administrator. Organisation-wide access across the Senior, Junior and Support Member groups. Every important action is audited.",
+    description: "Chairman of the choir — founder and supreme overseer. Sees everything happening across the Senior, Junior and Support Member groups and can act anywhere, while each group is led day-to-day by its own administrator. Also heads the founders of the choir. Every important action is audited.",
     grants: PERMISSIONS.map((p) => g(p.key, "global")),
+  },
+  {
+    key: "senior_leader",
+    name: "Senior Leader",
+    description: "Leads the Senior group: Senior applications, members, attendance, discipline, progress and approved shared choir resources.",
+    grants: [
+      g("dashboard.view", "global"),
+      g("application.read", "senior"), g("application.review", "senior"), g("application.decide", "senior"),
+      g("member.read", "senior"), g("member.write", "senior"),
+      g("music.read", "global"), g("music.write", "global"), g("music.discovery", "global"),
+      g("music.lyrics.write", "global"), g("music.audio.write", "global"), g("music.progress.write", "global"),
+      g("attendance.read", "senior"), g("attendance.write", "senior"),
+      g("discipline.read", "senior"), g("discipline.write", "senior"), g("recognition.write", "senior"),
+      g("goals.read", "global"), g("goals.write", "global"),
+      g("events.read", "global"), g("events.write", "global"),
+      g("training.read", "global"), g("training.write", "global"),
+      g("announcements.read", "global"), g("announcements.write", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("reports.read", "senior"),
+      g("search.global", "global"),
+    ],
   },
   {
     key: "junior_admin",
@@ -185,7 +207,7 @@ export const ROLES: RoleDef[] = [
 
 export const ROLE_KEYS = ROLES.map((r) => r.key)
 
-export const ADMIN_ROLE_KEYS = ["chairman", "junior_admin", "members_admin"]
+export const ADMIN_ROLE_KEYS = ["chairman", "senior_leader", "junior_admin", "members_admin"]
 
 /** Roles a Chairman may grant (self-service beyond this is not allowed). */
 export const ASSIGNABLE_ROLE_KEYS = ROLE_KEYS

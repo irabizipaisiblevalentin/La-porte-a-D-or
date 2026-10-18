@@ -7,7 +7,7 @@ import { getGroupById, listGroups, type GroupRow } from "../services/groups.js"
 
 export const dashboardRouter: Router = Router()
 
-type DashboardRole = "chairman" | "junior_admin" | "members_admin" | "member"
+type DashboardRole = "chairman" | "senior_leader" | "junior_admin" | "members_admin" | "member"
 
 interface StatItem {
   key: string
@@ -137,8 +137,43 @@ interface DashboardPayload {
   applicationsToReview?: ApplicationSummary[]
   /** Chairman only: unread member messages. */
   unreadMessages?: number
-  /** Chairman only: the most recent member messages. */
+/** Chairman only: the most recent member messages. */
   recentMessages?: MessageSummary[]
+  /** Chairman only: the "founders of the choir" list, maintained in app settings. */
+  founders?: FounderItem[]
+}
+
+/** One entry of the Chairman-maintained "founders of the choir" list. */
+interface FounderItem {
+  name: string
+  role: string | null
+  photo: string | null
+}
+
+/**
+ * The founders list is stored as a JSON array in the `chairman.founders` app
+ * setting — no dedicated table, the Chairman edits it from Settings.
+ * Malformed or missing values degrade to an empty list, never a crash.
+ */
+function chairmanFounders(): FounderItem[] {
+  const raw = one<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'chairman.founders'",
+  )?.value
+  if (!raw?.trim()) return []
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .filter((entry) => typeof entry.name === "string" && entry.name.trim().length > 0)
+      .map((entry) => ({
+        name: String(entry.name).trim(),
+        role: typeof entry.role === "string" && entry.role.trim() ? entry.role.trim() : null,
+        photo: typeof entry.photo === "string" && entry.photo.trim() ? entry.photo.trim() : null,
+      }))
+  } catch {
+    return []
+  }
 }
 
 function attendancePolicy(): AttendancePolicy {
@@ -599,11 +634,13 @@ dashboardRouter.get("/", requireAuth, (req, res) => {
   const user = req.auth!
   const role: DashboardRole = user.roles.includes("chairman")
     ? "chairman"
-    : user.roles.includes("junior_admin")
-      ? "junior_admin"
-      : user.roles.includes("members_admin")
-        ? "members_admin"
-        : "member"
+    : user.roles.includes("senior_leader")
+      ? "senior_leader"
+      : user.roles.includes("junior_admin")
+        ? "junior_admin"
+        : user.roles.includes("members_admin")
+          ? "members_admin"
+          : "member"
   const group = user.groupId ? getGroupById(user.groupId) : undefined
   const viewer = { displayName: user.displayName, memberNo: user.memberNo, groupKey: group?.key ?? null, groupName: group?.name ?? null }
   const policy = attendancePolicy()
@@ -632,6 +669,7 @@ dashboardRouter.get("/", requireAuth, (req, res) => {
     if (role === "chairman") {
       payload.unreadMessages = unreadMessagesFor(user.id)
       payload.recentMessages = recentMessagesFor(user.id, 5)
+      payload.founders = chairmanFounders()
     }
   } else {
     payload.stats = memberStats(user, policy)

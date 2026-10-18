@@ -55,13 +55,13 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <ThemeToggle className="text-ivory" />
             <a href={APPLICATION_FORM_URL} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-sm hidden sm:inline-flex">
               Apply for Membership
             </a>
-            <Link to="/login" className="btn btn-outline btn-sm text-ivory">
-              <LogIn size={15} /> Member Login
+            <Link to="/login" className="btn btn-outline btn-sm text-ivory" aria-label="Member login">
+              <LogIn size={15} /> <span className="hidden sm:inline">Member Login</span>
             </Link>
             <Link to="/admin/login" className="btn btn-ghost btn-sm hidden text-ivory md:inline-flex">
               Admin
@@ -76,17 +76,17 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           <div className="border-t border-gold-400/20 bg-charcoal-950/95 px-5 py-3 lg:hidden">
             <nav className="flex flex-col">
               {LINKS.map((link) => (
-                <a key={link.to} href={link.to} className="sidebar-link" onClick={() => setOpen(false)}>
+                <a key={link.to} href={link.to} className="sidebar-link text-ivory hover:text-gold-200" onClick={() => setOpen(false)}>
                   {link.label}
                 </a>
               ))}
               <a href={APPLICATION_FORM_URL} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-sm mt-2">
                 Apply for Membership
               </a>
-              <Link to="/login" className="sidebar-link" onClick={() => setOpen(false)}>
+              <Link to="/login" className="sidebar-link text-ivory hover:text-gold-200" onClick={() => setOpen(false)}>
                 Member Login
               </Link>
-              <Link to="/admin/login" className="sidebar-link" onClick={() => setOpen(false)}>
+              <Link to="/admin/login" className="sidebar-link text-ivory hover:text-gold-200" onClick={() => setOpen(false)}>
                 Administrator Login
               </Link>
             </nav>

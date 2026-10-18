@@ -585,7 +585,7 @@ function ChannelTools({ channel, onVerified, onRan }: { channel: DiscoveryChanne
             setSubmitted(term.trim())
           }}
         >
-          <div className="min-w-[16rem] flex-1">
+          <div className="w-full min-w-0 sm:w-auto sm:min-w-[16rem] sm:flex-1">
             <Field label="Search YouTube channels" htmlFor="channel-search">
               <Input
                 id="channel-search"

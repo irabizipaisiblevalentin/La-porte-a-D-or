@@ -30,7 +30,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const ADMIN_ROLES = ["chairman", "junior_admin", "members_admin"]
+const ADMIN_ROLES = ["chairman", "senior_leader", "junior_admin", "members_admin"]
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null)

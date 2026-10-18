@@ -33,7 +33,7 @@ import {
  * Only the sections the viewer's permissions allow are present.
  * ------------------------------------------------------------------ */
 
-type DashboardRole = "chairman" | "junior_admin" | "members_admin" | "member"
+type DashboardRole = "chairman" | "senior_leader" | "junior_admin" | "members_admin" | "member"
 
 interface StatItem {
   key: string
@@ -130,6 +130,12 @@ interface MessageSummary {
   readAt: string | null
 }
 
+interface FounderItem {
+  name: string
+  role: string | null
+  photo: string | null
+}
+
 interface DashboardPayload {
   role: DashboardRole
   viewer: { displayName: string; memberNo: string | null; groupKey: string | null; groupName: string | null }
@@ -149,6 +155,7 @@ interface DashboardPayload {
   applicationsToReview?: ApplicationSummary[]
   unreadMessages?: number
   recentMessages?: MessageSummary[]
+  founders?: FounderItem[]
 }
 
 const STAT_ICONS: Record<string, ReactNode> = {
@@ -164,6 +171,7 @@ const STAT_ICONS: Record<string, ReactNode> = {
 
 const ROLE_LABELS: Record<DashboardRole, string> = {
   chairman: "Chairman",
+  senior_leader: "Senior Leader",
   junior_admin: "Junior Administrator",
   members_admin: "Members Administrator",
   member: "Member",
@@ -248,6 +256,62 @@ function DashboardContent({ payload }: { payload: DashboardPayload }) {
 
       {isAdmin && payload.groups && payload.groups.length > 0 ? (
         <GroupOverview groups={payload.groups} isChairman={payload.role === "chairman"} />
+      ) : null}
+
+      {payload.role === "chairman" && payload.founders ? (
+        <Card>
+          <CardHeader
+            title="Founders of the Choir"
+            description="The members who formed Chorale La Porte d'Or."
+            actions={
+              <Link to="/app/settings" className="link text-sm">
+                Manage in Settings
+              </Link>
+            }
+          />
+          <CardBody>
+            {payload.founders.length === 0 ? (
+              <p className="muted text-sm">
+                No founders have been listed yet. Add them under Application settings → Founders of the
+                choir, one entry per founder with a name, an optional role and an optional photo link.
+              </p>
+            ) : (
+              <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {payload.founders.map((founder, index) => (
+                  <li
+                    key={`${founder.name}-${index}`}
+                    className="flex items-center gap-3 rounded-lg border hairline border-[color:var(--color-hairline)] p-3"
+                  >
+                    {founder.photo ? (
+                      <img
+                        src={founder.photo}
+                        alt={founder.name}
+                        className="h-12 w-12 shrink-0 rounded-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color:var(--color-gold)]/15 font-display text-lg font-semibold text-[color:var(--color-gold)]"
+                      >
+                        {founder.name
+                          .split(/\s+/)
+                          .slice(0, 2)
+                          .map((part) => part[0])
+                          .join("")
+                          .toUpperCase()}
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{founder.name}</p>
+                      <p className="muted truncate text-xs">{founder.role ?? "Founder"}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -590,7 +654,8 @@ function DashboardContent({ payload }: { payload: DashboardPayload }) {
       !payload.recentAudit &&
       !(payload.groups && payload.groups.length > 0) &&
       !payload.applicationsToReview &&
-      !payload.recentMessages ? (
+      !payload.recentMessages &&
+      payload.founders === undefined ? (
         <Card>
           <CardBody>
             <p className="muted text-sm">

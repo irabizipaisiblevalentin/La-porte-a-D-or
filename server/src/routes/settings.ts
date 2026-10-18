@@ -17,6 +17,8 @@ interface SettingDef {
   description: string
   /** When present the incoming value must be one of these (after string coercion). */
   allowedValues?: string[]
+  /** Optional extra validation; throw a Bad Request error to reject the value. */
+  validate?: (text: string) => void
 }
 
 /** The only app settings an administrator may change. Kept in sync with the seed. */
@@ -59,7 +61,37 @@ const SETTING_DEFS: SettingDef[] = [
     description: "Display uploaded choir photographs on the public landing page.",
     allowedValues: ["true", "false"],
   },
+  {
+    key: "chairman.founders",
+    label: "Founders of the choir",
+    description: "The founding members listed in the Chairman's dashboard section. A JSON list of { name, role, photo } objects; leave empty for none.",
+    validate: validateFoundersJson,
+  },
 ]
+
+/**
+ * The founders list must be a JSON array of objects with a `name`; anything else
+ * would render as a broken dashboard section, so it is rejected at the door.
+ */
+function validateFoundersJson(text: string): void {
+  if (!text.trim()) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw badRequest("Invalid value for Founders of the choir.", {
+      fields: { "chairman.founders": "Must be valid JSON, e.g. [{\"name\":\"Jane A\",\"role\":\"Founder\",\"photo\":\"\"}]." },
+    })
+  }
+  const ok = Array.isArray(parsed) && parsed.every((entry) =>
+    Boolean(entry) && typeof entry === "object" && typeof (entry as Record<string, unknown>).name === "string",
+  )
+  if (!ok) {
+    throw badRequest("Invalid value for Founders of the choir.", {
+      fields: { "chairman.founders": "Must be a JSON list of objects that each have a name, e.g. [{\"name\":\"Jane A\",\"role\":\"Founder\",\"photo\":\"\"}]." },
+    })
+  }
+}
 
 /**
  * Display hints for each integration. The `integration_settings` table stores
@@ -190,6 +222,7 @@ function normalizeSettingValue(def: SettingDef, raw: string | boolean | number):
       fields: { [def.key]: `Allowed values: ${def.allowedValues.join(", ")}.` },
     })
   }
+  def.validate?.(text)
   return text
 }
 

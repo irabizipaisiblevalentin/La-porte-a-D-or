@@ -4,8 +4,9 @@
  * Kept in a database-free module so it can be imported by unit tests without
  * opening a SQLite connection. See `seed-admins.ts` for the creation logic.
  *
- * These are the three real administrator accounts for the choir:
- *   - Chairman          (supreme administrator — controls all three groups)
+ * These are the four real administrator accounts for the choir:
+ *   - Chairman          (oversees all three groups; heads the founders section)
+ *   - Senior Administrator       (scoped to the Senior group)
  *   - Junior Administrator        (scoped to the Junior group)
  *   - Members Administrator       (scoped to the Support Members group)
  *
@@ -43,6 +44,15 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
   },
   {
     kind: "admin",
+    roleKey: "senior_leader",
+    groupId: null,
+    email: "senior.admin@laportedor.local",
+    displayName: "Senior Administrator",
+    password: "SeniorAdminLogin!2026",
+    avatarPath: null,
+  },
+  {
+    kind: "admin",
     roleKey: "junior_admin",
     groupId: null,
     email: "junior.admin@laportedor.local",
@@ -64,6 +74,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
 /** Environment variable prefix used to override each account's email/name/password. */
 export const ACCOUNT_ENV_PREFIX: Record<string, string> = {
   chairman: "CHAIRMAN",
+  senior_leader: "SENIOR_ADMIN",
   junior_admin: "JUNIOR_ADMIN",
   members_admin: "MEMBERS_ADMIN",
 }

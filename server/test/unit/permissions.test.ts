@@ -18,14 +18,16 @@ test("there are exactly the documented roles", () => {
     "junior_admin",
     "junior_singer",
     "members_admin",
+    "senior_leader",
     "senior_singer",
     "support_member",
   ])
 })
 
-test("there are exactly three administrator roles", () => {
+test("there are exactly four administrator roles", () => {
   const admins = ROLES.filter((role) => ADMIN_ROLE_KEYS.includes(role.key)).map((role) => role.key).sort()
   assert.deepEqual(admins, [...ADMIN_ROLE_KEYS].sort())
+  assert.equal(admins.length, 4)
 })
 
 test("every granted permission exists and every grant scope is allowed", () => {

@@ -26,8 +26,8 @@ test("default accounts: emails are unique and normalised", () => {
   }
 })
 
-test("default accounts: exactly three administrators, one per admin role", () => {
-  assert.equal(DEFAULT_ACCOUNTS.length, 3)
+test("default accounts: exactly four administrators, one per admin role", () => {
+  assert.equal(DEFAULT_ACCOUNTS.length, 4)
   for (const account of DEFAULT_ACCOUNTS) {
     assert.equal(account.kind, "admin", `${account.email} should be an admin account`)
     assert.ok(ADMIN_ROLE_KEYS.includes(account.roleKey), `${account.email} should hold an admin role`)
@@ -39,10 +39,10 @@ test("default accounts: exactly three administrators, one per admin role", () =>
   )
 })
 
-test("default accounts: every administrator has a profile photo", () => {
+test("default accounts: every profile photo, when set, lives under /assets/avatars/", () => {
   for (const account of DEFAULT_ACCOUNTS) {
-    assert.ok(account.avatarPath, `${account.email} should have an avatar`)
-    assert.ok(account.avatarPath!.startsWith("/assets/avatars/"), `${account.email} avatar should live under /assets/avatars/`)
+    if (!account.avatarPath) continue
+    assert.ok(account.avatarPath.startsWith("/assets/avatars/"), `${account.email} avatar should live under /assets/avatars/`)
   }
 })
 

@@ -31,6 +31,14 @@ import {
   type Column,
 } from "../../components/ui"
 
+/**
+ * Spread X-axis labels so they never collide on narrow screens: show every
+ * label up to 8 bars, then thin them out proportionally.
+ */
+function labelInterval(count: number): number {
+  return Math.max(0, Math.ceil(count / 8) - 1)
+}
+
 // --- Response shapes (mirroring server/src/routes/reports.ts) ---------------
 
 interface GroupMeta {
@@ -491,7 +499,7 @@ function DisciplineTab({ report }: { report: ReturnType<typeof useQuery<Discipli
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.byCategory}>
                   <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.25} />
-                  <XAxis dataKey="label" fontSize={12} interval={0} angle={-20} textAnchor="end" height={70} />
+                  <XAxis dataKey="label" fontSize={12} interval={labelInterval(data.byCategory.length)} angle={-20} textAnchor="end" height={70} />
                   <YAxis allowDecimals={false} fontSize={12} />
                   <Tooltip />
                   <Bar dataKey="count" name="Records" radius={[4, 4, 0, 0]}>
@@ -565,7 +573,7 @@ function MusicTab({ report }: { report: ReturnType<typeof useQuery<MusicReport>>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={data.byStage}>
                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.25} />
-                    <XAxis dataKey="name" fontSize={12} interval={0} angle={-20} textAnchor="end" height={70} />
+                    <XAxis dataKey="name" fontSize={12} interval={labelInterval(data.byStage.length)} angle={-20} textAnchor="end" height={70} />
                     <YAxis allowDecimals={false} fontSize={12} />
                     <Tooltip />
                     <Bar dataKey="count" name="Songs" fill={GOLD} radius={[4, 4, 0, 0]} />
@@ -581,7 +589,7 @@ function MusicTab({ report }: { report: ReturnType<typeof useQuery<MusicReport>>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={data.byCategory}>
                     <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.25} />
-                    <XAxis dataKey="name" fontSize={12} interval={0} angle={-20} textAnchor="end" height={70} />
+                    <XAxis dataKey="name" fontSize={12} interval={labelInterval(data.byCategory.length)} angle={-20} textAnchor="end" height={70} />
                     <YAxis allowDecimals={false} fontSize={12} />
                     <Tooltip />
                     <Bar dataKey="count" name="Songs" fill={GOLD_DARK} radius={[4, 4, 0, 0]} />
@@ -661,7 +669,7 @@ function GoalsTab({ report }: { report: ReturnType<typeof useQuery<GoalsReport>>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={data.progress}>
                   <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.25} />
-                  <XAxis dataKey="name" fontSize={12} interval={0} angle={-20} textAnchor="end" height={80} />
+                  <XAxis dataKey="name" fontSize={12} interval={labelInterval(data.progress.length)} angle={-20} textAnchor="end" height={80} />
                   <YAxis domain={[0, 100]} fontSize={12} unit="%" />
                   <Tooltip />
                   <Bar dataKey="percent" name="Complete" fill={GOLD} radius={[4, 4, 0, 0]} />

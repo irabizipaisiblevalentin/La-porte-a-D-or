@@ -56,9 +56,9 @@ export function unreadCount(userId: string): number {
 
 /** Role key of the administrator who reviews a given group's applications. */
 function adminRoleForGroup(groupId: string | null | undefined): string | null {
+  if (groupId === "grp_senior") return "senior_leader"
   if (groupId === "grp_junior") return "junior_admin"
   if (groupId === "grp_members") return "members_admin"
-  // The Senior group is administered directly by the Chairman.
   return null
 }
 

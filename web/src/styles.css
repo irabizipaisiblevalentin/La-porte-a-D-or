@@ -55,6 +55,22 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* iOS zooms into focused inputs smaller than 16px — force 16px on phones. */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+
+  /* Comforter tap targets on touch devices (tracked via coarse pointer). */
+  @media (pointer: coarse) {
+    .btn-sm {
+      min-height: 2.5rem;
+    }
+  }
+
   .dark body {
     background-color: var(--color-charcoal-950);
     color: var(--color-ivory);
@@ -270,6 +286,7 @@
 
   .table-wrap {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     border-radius: var(--radius-xl);
     border: 1px solid color-mix(in srgb, var(--color-charcoal-900) 10%, transparent);
   }
