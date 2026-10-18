@@ -24,7 +24,7 @@
 
 var CONFIG = {
   // Your platform's webhook endpoint, no trailing slash.
-  ENDPOINT: 'https://YOUR-HOST/api/applications/webhook',
+  ENDPOINT: 'https://la-porte-ador.onrender.com/api/applications/webhook',
 
   // Must equal Settings > Integrations > "Google webhook signing secret".
   SECRET: 'PASTE-YOUR-WEBHOOK-SECRET-HERE',
