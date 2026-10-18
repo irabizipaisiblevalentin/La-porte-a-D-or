@@ -206,7 +206,8 @@ no email address was given. The member is asked to choose their own password at 
 The same credentials are **emailed to the applicant automatically at approval** (see
 [Email (SMTP)](#email-smtp)). When the applicant left the email question blank, or no relay is
 configured, nothing is sent and the approving administrator is told why — the credentials stay on the
-application screen and on the member's record.
+application screen and on the member's record, where **WhatsApp**, **SMS** and **Copy** buttons hand
+them over for free.
 
 The password is readable for the whole life of the account: the member's record shows it under
 **Sign-in password**, and the administrator who manages that member can **Send sign-in details** again
@@ -245,6 +246,22 @@ Until SMTP is configured:
 3. Once a host **and** a sender address are present the app reports email delivery as available,
    approvals email the member their credentials, and the settings screen reflects the computed
    status. Every attempt is recorded in `integration_runs` and the audit log.
+
+### Free options
+
+- **Email (free):** a personal Gmail account with an **App password** — Google account → Security →
+  2-Step Verification → App passwords. Use host `smtp.gmail.com`, port `587`, the Gmail address as
+  both username and sender. Free, no card, roughly 500 messages a day, which is far more than a choir
+  approves. Free transactional providers (e.g. Brevo's free tier) work with the same four fields.
+- **SMS (not free):** there is no reliable free server-side SMS gateway that can reach ordinary
+  Rwandan mobile numbers — trial credits only reach pre-verified numbers. Rather than pretend
+  otherwise, the app offers two channels that cost nothing and need no account:
+  - **WhatsApp** and **SMS** buttons next to the credentials on the member record and in the approval
+    result. They open the administrator's own WhatsApp or messaging app with the whole message
+    (sign-in page, name, password) already written, so nothing is typed and nothing is billed.
+  - **Copy details**, for reading out over the phone.
+  If you later buy an SMS gateway (Africa's Talking, Twilio, …), it can be wired in behind the same
+  `delivery` result the email path already uses.
 
 ---
 

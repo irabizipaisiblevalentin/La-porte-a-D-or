@@ -3,9 +3,7 @@ import { Link, useParams } from "react-router-dom"
 import {
   AlertTriangle,
   ArrowLeft,
-  Check,
   ClipboardCheck,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -16,6 +14,7 @@ import {
 import { api } from "../../api/client"
 import { useMutation, useQuery } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
+import { SignInShare } from "../../components/SignInShare"
 import {
   Badge,
   Button,
@@ -124,7 +123,12 @@ interface ApprovedMember {
     member_no: string
     full_name: string
     group_name?: string
+    /** Account email; null when the applicant gave none. */
+    email?: string | null
+    username?: string | null
   }
+  /** Contact facets of the new member record (phone is used for SMS/WhatsApp). */
+  contact?: { phone?: string | null } | null
 }
 
 interface DecisionResponse {
@@ -188,7 +192,6 @@ export function ApplicationDetailPage() {
   const [fields, setFields] = useState<Record<string, string>>({})
   const [sessionFiles, setSessionFiles] = useState<UploadedFile[]>([])
   const [decisionResult, setDecisionResult] = useState<DecisionResponse | null>(null)
-  const [copied, setCopied] = useState(false)
 
   const review = useMutation((body: { status?: string; assignedGroupId?: string; note?: string }) =>
     api.patch<{ application: ApplicationDetail }>(`/applications/${id}`, body),
@@ -278,17 +281,6 @@ export function ApplicationDetailPage() {
     toast.success("Document uploaded.")
   }
 
-  async function copyCredentials(text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      toast.success("Sign-in details copied.")
-      window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      toast.error("Could not copy automatically. Select the text and copy it manually.")
-    }
-  }
-
   const breadcrumbs = [
     { label: "Dashboard", to: "/app" },
     { label: "Applications", to: "/app/applications" },
@@ -337,10 +329,10 @@ export function ApplicationDetailPage() {
     : delivery.sent
       ? `They were emailed to ${delivery.to}.`
       : delivery.reason === "not_configured"
-        ? "No email was sent — email delivery is not configured yet. Add the SMTP details in Settings → Integrations, or hand these over yourself."
+        ? "No email was sent — email delivery is not configured yet. Send them with WhatsApp or SMS below, or add the SMTP details in Settings → Integrations."
         : delivery.reason === "no_email"
-          ? "No email was sent — the applicant did not leave an email address. Hand these over yourself."
-          : `No email was sent${delivery.error ? ` (${delivery.error})` : ""}. Hand these over yourself.`
+          ? "No email was sent — the applicant left the email question blank. Send them with WhatsApp or SMS below."
+          : `No email was sent${delivery.error ? ` (${delivery.error})` : ""}. Send them with WhatsApp or SMS below.`
 
   return (
     <div className="flex flex-col gap-6">
@@ -455,24 +447,20 @@ export function ApplicationDetailPage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <Button
-                    variant="outline"
-                    icon={copied ? <Check size={16} /> : <Copy size={16} />}
-                    onClick={() =>
-                      copyCredentials(`Username: ${credentials.username}\nPassword: ${credentials.password}`)
-                    }
-                  >
-                    {copied ? "Copied" : "Copy both"}
-                  </Button>
-                </div>
+                <SignInShare
+                  fullName={decisionResult.member.member.full_name}
+                  username={credentials.username}
+                  email={decisionResult.member.member.email ?? application.email}
+                  password={credentials.password}
+                  phone={decisionResult.member.contact?.phone ?? application.phone}
+                />
               </div>
             ) : (
               <div className="flex items-start gap-2 rounded-xl border border-gold-400/40 bg-gold-400/10 px-4 py-3 text-sm">
                 <Info size={16} className="mt-0.5 shrink-0 text-gold-600 dark:text-gold-300" aria-hidden />
                 <span>
-                  This application was already approved, so no new password was generated. The member's username is on
-                  their member record; ask the Chairman to reset the password if it has been lost.
+                  This application was already approved, so no new password was generated. The member's sign-in name and
+                  password are on their member record, where they can also be sent by WhatsApp or SMS.
                 </span>
               </div>
             )}

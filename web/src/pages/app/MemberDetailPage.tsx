@@ -2,7 +2,6 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from "react"
 import { Link, useParams } from "react-router-dom"
 import {
   ArrowLeft,
-  Copy,
   Eye,
   EyeOff,
   Info,
@@ -19,6 +18,7 @@ import { api } from "../../api/client"
 import { useMutation, useQuery } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
 import { groupScope } from "../../auth/groups"
+import { SignInShare } from "../../components/SignInShare"
 import {
   Badge,
   Button,
@@ -382,26 +382,11 @@ export function MemberDetailPage() {
       return
     }
     if (delivery.reason === "not_configured") {
-      toast.error("Email delivery is not configured. Add the SMTP details in Settings → Integrations, then try again.")
+      toast.error("Email delivery is not configured. Add the SMTP details in Settings → Integrations, then try again — or use WhatsApp/SMS below.")
     } else if (delivery.reason === "no_email") {
-      toast.error("This member has no email address on file. Share the sign-in details directly.")
+      toast.error("This member has no email address on file. Send the details with WhatsApp or SMS instead.")
     } else {
       toast.error(`The email could not be sent${delivery.error ? `: ${delivery.error}` : "."}`)
-    }
-  }
-
-  async function copySignInDetails() {
-    if (!member) return
-    const lines = [
-      `Sign-in page: ${window.location.origin}/login`,
-      `Email or username: ${member.email ?? member.username ?? ""}`,
-    ]
-    if (member.sign_in_password) lines.push(`Password: ${member.sign_in_password}`)
-    try {
-      await navigator.clipboard.writeText(lines.join("\n"))
-      toast.success("Sign-in details copied.")
-    } catch {
-      toast.error("Could not copy automatically. Select the text and copy it manually.")
     }
   }
 
@@ -546,12 +531,19 @@ export function MemberDetailPage() {
                   >
                     {revealed ? "Hide" : "Show"}
                   </Button>
-                  <Button variant="ghost" size="sm" icon={<Copy size={15} />} onClick={copySignInDetails}>
-                    Copy
-                  </Button>
                 </div>
-                <p className="muted mt-1 text-xs">
-                  Generated for this member. Send it to them, or use “Send sign-in details” in the header.
+                <div className="mt-2">
+                  <SignInShare
+                    fullName={member.full_name}
+                    username={member.username}
+                    email={member.email}
+                    password={member.sign_in_password}
+                    phone={detail?.contact?.phone}
+                  />
+                </div>
+                <p className="muted mt-2 text-xs">
+                  Generated for this member. Emailing is automatic once SMTP is configured; WhatsApp and SMS open on
+                  your own phone and cost nothing.
                 </p>
               </div>
             ) : null}
