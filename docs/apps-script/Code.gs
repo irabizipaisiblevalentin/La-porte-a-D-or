@@ -12,6 +12,11 @@
  *   4. Select installTrigger in the function dropdown and click Run once,
  *      then approve the permissions. (You do NOT need the Triggers dialog.)
  *
+ * OPTIONAL: the same script can send the platform's e-mail (member sign-in
+ * details) straight from this Google account — no SMTP relay, no app password.
+ * See the "Mail web app" section below: run sendTestMail once, then deploy the
+ * script as a web app and paste its /exec URL into Settings > Integrations.
+ *
  * Submitting the form never creates an account. It only creates an application
  * that an administrator must review and approve.
  *
@@ -253,6 +258,91 @@ function hmacHex_(secret, body) {
     out += v.length === 1 ? '0' + v : v;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Mail web app  (optional: lets the platform send e-mail through this Google
+// account, so no SMTP relay or app password is ever needed)
+// ---------------------------------------------------------------------------
+//
+// SETUP (once)
+//   1. Keep CONFIG.SECRET as it is — the platform signs mail calls with the
+//      same shared secret it uses for the form webhook.
+//   2. Select sendTestMail in the function dropdown and Run once, to grant the
+//      "send email as you" permission. Check your inbox.
+//   3. Deploy > New deployment > Web app
+//        Execute as:  Me
+//        Who has access:  Anyone
+//      Copy the /exec URL and paste it into the platform under
+//      Settings > Integrations > "Apps Script mail web app URL".
+//
+// The URL is public, so every call must carry a valid signature; unsigned or
+// stale calls are refused and send nothing. Only this account's own mail quota
+// is used (100 recipients/day on a personal Gmail).
+
+/** Entry point for the platform's mail calls (Apps Script web app POST). */
+function doPost(e) {
+  var data;
+  try {
+    data = JSON.parse((e && e.postData && e.postData.contents) || '');
+  } catch (err) {
+    return jsonOut_({ ok: false, error: 'invalid JSON body' });
+  }
+
+  if (!data || data.action !== 'sendMail') {
+    return jsonOut_({ ok: false, error: 'unsupported action' });
+  }
+
+  // Newline-joined fields, signed with the shared secret.
+  var expected = hmacHex_(CONFIG.SECRET, [data.ts || '', data.to || '', data.subject || '', data.text || ''].join('\n'));
+  if (!sameSecret_(expected, data.signature || '')) {
+    Logger.log('Refused an unsigned or mis-signed mail call.');
+    return jsonOut_({ ok: false, error: 'bad signature' });
+  }
+
+  // Reject a call that is not fresh (limits a leaked body to a short window).
+  var sentAt = Date.parse(data.ts);
+  if (!sentAt || Math.abs(Date.now() - sentAt) > 15 * 60 * 1000) {
+    return jsonOut_({ ok: false, error: 'stale request' });
+  }
+
+  if (!data.to || !data.subject) {
+    return jsonOut_({ ok: false, error: 'missing recipient or subject' });
+  }
+
+  try {
+    MailApp.sendEmail({ to: data.to, subject: data.subject, body: data.text || '' });
+    Logger.log('Sent "' + data.subject + '" to ' + data.to);
+    return jsonOut_({ ok: true, to: data.to });
+  } catch (err) {
+    Logger.log('MailApp failed: ' + err);
+    return jsonOut_({ ok: false, error: String(err) });
+  }
+}
+
+/** Sends you a test message; run once to grant the mail permission. */
+function sendTestMail() {
+  var me = Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail({
+    to: me,
+    subject: 'Chorale La Porte d\'Or — mail web app test',
+    body: 'If you are reading this, the platform can now send member sign-in details from ' + me + '.'
+  });
+  Logger.log('Test message sent to ' + me);
+}
+
+function jsonOut_(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Length-safe, constant-time-ish string comparison. */
+function sameSecret_(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= (a.charCodeAt(i) ^ b.charCodeAt(i));
+  }
+  return diff === 0;
 }
 
 // ---------------------------------------------------------------------------

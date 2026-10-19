@@ -89,6 +89,13 @@ const TABS = [
   { key: "assets", label: "Brand & gallery" },
 ]
 
+/** Friendly names for the `integration` column of `integration_runs`. */
+const INTEGRATION_LABELS: Record<string, string> = {
+  smtp: "Email (SMTP relay)",
+  apps_script_mail: "Email (Apps Script)",
+  youtube: "YouTube",
+}
+
 export function SettingsPage() {
   const { can } = useAuth()
   const toast = useToast()
@@ -401,8 +408,10 @@ function IntegrationsTab({
         <p className="font-medium">Integrations are awaiting setup until configured</p>
         <p className="muted mt-0.5">
           Each integration reports its true status below. Secrets are stored encrypted on the server and are never sent
-          back to the browser. Approval emails (the member's sign-in details) go out once an SMTP host and a sender
-          address are set; until then the credentials are shown in the app and notifications appear in-app only.
+          back to the browser. Approval emails (the member's sign-in details) go out once one mail channel is set up —
+          either an SMTP relay host with a sender address, or the "Apps Script mail web app URL" (which sends from your
+          own Gmail and needs no mail account at all); until then the credentials are shown in the app and
+          notifications appear in-app only.
         </p>
       </div>
 
@@ -467,7 +476,7 @@ function IntegrationsTab({
             {runs.map((run) => (
               <div key={run.id} className="flex flex-wrap items-center justify-between gap-2 border-b hairline py-2 last:border-0">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">{run.integration}</p>
+                  <p className="text-sm font-medium">{INTEGRATION_LABELS[run.integration] ?? run.integration}</p>
                   {run.summary ? <p className="muted truncate text-xs">{run.summary}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">

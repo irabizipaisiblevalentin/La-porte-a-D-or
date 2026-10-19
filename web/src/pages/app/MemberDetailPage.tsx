@@ -394,7 +394,7 @@ export function MemberDetailPage() {
       return
     }
     if (delivery.reason === "not_configured") {
-      toast.error("Email delivery is not configured. Add the SMTP details in Settings → Integrations, then try again — or use WhatsApp/SMS below.")
+      toast.error("Email delivery is not configured. Add a mail channel in Settings → Integrations, then try again — or use WhatsApp/SMS below.")
     } else if (delivery.reason === "no_email") {
       toast.error("This member has no email address on file. Send the details with WhatsApp or SMS instead.")
     } else {
@@ -563,8 +563,8 @@ export function MemberDetailPage() {
                   />
                 </div>
                 <p className="muted mt-2 text-xs">
-                  Generated for this member. Emailing is automatic once SMTP is configured; WhatsApp and SMS open on
-                  your own phone and cost nothing.
+                  Generated for this member. Emailing is automatic once a mail channel is configured; WhatsApp and SMS
+                  open on your own phone and cost nothing.
                 </p>
               </div>
             ) : null}

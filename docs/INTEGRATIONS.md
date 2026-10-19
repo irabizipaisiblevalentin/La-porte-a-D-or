@@ -23,7 +23,8 @@ keys are:
 | `google_sheet_id` | no | Spreadsheet id of the application register |
 | `google_service_account` | **yes** | Service-account JSON for the Sheets API |
 | `google_webhook_url` | no | Apps Script webhook URL (alternative to the Sheets API) |
-| `google_webhook_secret` | **yes** | Shared secret used to verify inbound webhooks |
+| `google_webhook_secret` | **yes** | Shared secret used to verify inbound webhooks, and to sign mail sent through the Apps Script mail web app |
+| `mail_webhook_url` | no | Apps Script **mail** web app URL — sends e-mail from your own Google account, no SMTP account needed |
 | `smtp_host` | no | SMTP host |
 | `smtp_port` | no | SMTP port (587 STARTTLS or 465 TLS) |
 | `smtp_user` | no | SMTP username |
@@ -204,7 +205,7 @@ administrator — the username comes from the applicant's full name, and is what
 no email address was given. The member is asked to choose their own password at first sign-in.
 
 The same credentials are **emailed to the applicant automatically at approval** (see
-[Email (SMTP)](#email-smtp)). When the applicant left the email question blank, or no relay is
+[Email](#email)). When the applicant left the email question blank, or no mail channel is
 configured, nothing is sent and the approving administrator is told why — the credentials stay on the
 application screen and on the member's record, where **WhatsApp**, **SMS** and **Copy** buttons hand
 them over for free.
@@ -217,20 +218,61 @@ changes — approval, self-service change, and reset.
 
 ---
 
-## Email (SMTP)
+## Email
 
 **Purpose:** email sign-in details to an approved member, plus invitation, password-reset and
 notification emails. **This is not configured by default, and nothing here is required for the
 platform to work.**
 
-Until SMTP is configured:
+There are **two ways** to send it, and either one is enough:
+
+| Channel | What it needs | Cost |
+| --- | --- | --- |
+| **A. Apps Script mail web app** *(recommended — no account to create)* | the Apps Script you already deployed for the form, deployed once more as a **web app** | free (Google account quota) |
+| **B. SMTP relay** | SMTP credentials from a mail provider | free tiers exist |
+
+Channel **A** is the one to pick when you have no mail account, no app password and no wish to sign
+up anywhere: the platform hands the message to a small Apps Script running in your own Google
+account, which sends it with `MailApp`. Delivery comes from **your own Gmail address**, so it is
+rarely treated as spam. The Google Account it uses is the one that already owns the application form.
+
+Until a mail channel is configured:
 
 - Notifications are delivered **in-app only** — this is real and works.
 - Invitation links and password-reset links are **returned to the administrator** in the UI (with a
   copy button) so they can be shared manually. The UI states plainly that no email was sent.
 - Approval does not email the new member. The generated username and password stay on the application
   screen and on the member's record, so they can be handed over by hand. Every member record also has
-  a **Send sign-in details** button that starts working the moment a relay is configured.
+  a **Send sign-in details** button that starts working the moment a mail channel is configured.
+
+### Option A — Apps Script mail web app (no mail account)
+
+The [bundled script](apps-script/Code.gs) already forwards form submissions to the platform. It also
+carries a `doPost` handler that sends mail, and the platform signs every message with the shared
+`google_webhook_secret` the script already has.
+
+1. Open the form's Apps Script (**Extensions → Apps Script**), paste the current `Code.gs` and
+   **Save**.
+2. In the function dropdown choose **`sendTestMail`** and **Run** once — approve the new
+   *"Send email as you"* permission. A test message arrives in that Google account's inbox.
+3. **Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
+   Copy the `/exec` URL.
+4. In **Settings → Integrations**, set **Apps Script mail web app URL** (`mail_webhook_url`) to that
+   `/exec` URL. The **Google webhook signing secret** must already be set — it signs the mail calls,
+   and without it the URL is ignored (an unsigned endpoint would let anyone send mail as the choir).
+
+The app then reports email delivery as available and approvals are emailed automatically. If the
+script ever refuses (for example the daily Gmail quota is reached), the reason is stored in
+**Recent integration runs** and the approving administrator sees it immediately — nothing fails
+silently, and the credentials remain on screen for WhatsApp/SMS handover.
+
+**Quota:** a free consumer Google account may send to **100 recipients/day** through Apps Script
+(Google Workspace: 1,500). A choir approving a handful of members a day is far below this, and the
+app sends e-mail from exactly one place (a member's sign-in details), so the real volume is tiny.
+
+## Email (SMTP)
+
+Channel **B** — use this when you already have a mailbox or a transactional provider.
 
 ### Steps
 
@@ -249,6 +291,8 @@ Until SMTP is configured:
 
 ### Free options
 
+- **No account at all:** use **Channel A** above — your existing Google account, through Apps Script.
+  That is the option to prefer when a mail signup is not possible.
 - **Email (free):** a personal Gmail account with an **App password** — Google account → Security →
   2-Step Verification → App passwords. Use host `smtp.gmail.com`, port `587`, the Gmail address as
   both username and sender. Free, no card, roughly 500 messages a day, which is far more than a choir

@@ -278,8 +278,10 @@ All are optional in development; the ones marked **prod** should be set in produ
 | `LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL` | `15m`, `1h`, `6h` | Compaction windows (Litestream defaults: `30s`, `5m`, `1h`). |
 | `LITESTREAM_SNAPSHOT_INTERVAL` | `24h` | How often a full copy of the database is written to the bucket. |
 
-Secrets for integrations (YouTube, Google Sheets, SMTP) are **not** environment variables — they are
-entered in the app under **Settings → Integrations** and stored encrypted at rest.
+Secrets for integrations (YouTube, Google Sheets, e-mail) are **not** environment variables — they are
+entered in the app under **Settings → Integrations** and stored encrypted at rest. E-mail needs no
+account at all: an Apps Script web app sends it from the choir's own Google account (see
+[Email](docs/INTEGRATIONS.md#email)).
 
 ---
 
@@ -390,7 +392,7 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 62 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 66 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
   role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
   `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
@@ -401,8 +403,13 @@ field mapping.
   on `/api/health`, one audit entry + one Chairman notification, no nagging on a healthy boot), and
   upload durability (every upload mirrored into the bucket, served from the bucket — and re-cached —
   after the disk is wiped, private files only after the authorization check, deletion propagated,
-  no bucket call for unknown paths and traversal refused), and removing a member record (Chairman
-  only, withdrawn records only, account and photograph erased, application and audit trail kept).
+  no bucket call for unknown paths and traversal refused), removing a member record (Chairman
+  only, withdrawn records only, account and photograph erased, application and audit trail kept), and
+  e-mail through a Google Apps Script mail web app (the credentials are posted to the configured web
+  app and the signature verifies, the 302 Apps Script always answers with is repeated as a POST rather
+  than downgraded to a GET that would silently send nothing, a refusal from the script is reported as a
+  failure, an endpoint without the signing secret is not treated as configured, and an unreachable web
+  app never undoes the membership).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.
 - `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
   into `dist/` so `npm start` (compiled output) boots.
@@ -546,7 +553,7 @@ choir/
 │  ├─ API.md              # canonical endpoint contract
 │  ├─ CONVENTIONS.md      # stack, imports, auth, audit, UI conventions
 │  ├─ DEPLOYMENT.md       # Render + Backblaze B2 (https://la-porte-ador.onrender.com)
-│  ├─ INTEGRATIONS.md     # YouTube / Google Sheets / SMTP setup steps
+│  ├─ INTEGRATIONS.md     # YouTube / Google Sheets / e-mail setup steps
 │  └─ apps-script/        # Code.gs + README.md (ready-to-paste Google Apps Script)
 ├─ server/                # Express 5 + better-sqlite3 API
 │  ├─ src/

@@ -329,7 +329,7 @@ export function ApplicationDetailPage() {
     : delivery.sent
       ? `They were emailed to ${delivery.to}.`
       : delivery.reason === "not_configured"
-        ? "No email was sent — email delivery is not configured yet. Send them with WhatsApp or SMS below, or add the SMTP details in Settings → Integrations."
+        ? "No email was sent — email delivery is not configured yet. Send them with WhatsApp or SMS below, or add a mail channel in Settings → Integrations."
         : delivery.reason === "no_email"
           ? "No email was sent — the applicant left the email question blank. Send them with WhatsApp or SMS below."
           : `No email was sent${delivery.error ? ` (${delivery.error})` : ""}. Send them with WhatsApp or SMS below.`

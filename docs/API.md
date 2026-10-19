@@ -186,7 +186,7 @@ All `[perm: reports.read/{scope}]`; every number comes from the database.
 ## Settings
 - `GET /settings` `[perm: settings.read]` -> `{ settings: [{ key, label, description, value }], integrations: [{ key, label, hint, isSecret, status, valuePlain, updatedAt }] }`
 - `PATCH /settings` `[perm: settings.write]` `{ settings: { key: value } }`
-- `PATCH /settings/integrations` `[perm: settings.write]` `{ values: { key: value | null } }` (secrets encrypted server-side)
+- `PATCH /settings/integrations` `[perm: settings.write]` `{ values: { key: value | null } }` (secrets encrypted server-side). E-mail can be delivered either through SMTP (`smtp_host` + `smtp_from`, optional `smtp_port`/`smtp_user`/`smtp_password`) or through an Apps Script mail web app (`mail_webhook_url`, signed with `google_webhook_secret`); either one makes `emailDeliveryConfigured` true, and every attempt is recorded in `integration_runs` under `smtp` or `apps_script_mail`.
 
 ## Uploads / files
 - `POST /uploads/brand/logo` `[perm: settings.write]` multipart `file`

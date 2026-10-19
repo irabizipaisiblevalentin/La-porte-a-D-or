@@ -57,6 +57,7 @@ const INTEGRATIONS = [
   { id: "int_google_service_account", key: "google_service_account", label: "Google service account credentials (JSON)", is_secret: 1, value_plain: null, hint: "Server-side secret used for the Sheets API. Never sent to the browser." },
   { id: "int_google_webhook_url", key: "google_webhook_url", label: "Google Apps Script webhook URL", is_secret: 0, value_plain: null, hint: "Alternative to the Sheets API: an Apps Script that posts form responses to this server." },
   { id: "int_google_webhook_secret", key: "google_webhook_secret", label: "Google webhook signing secret", is_secret: 1, value_plain: null, hint: "Shared secret used to verify inbound webhook payloads." },
+  { id: "int_mail_webhook_url", key: "mail_webhook_url", label: "Apps Script mail web app URL", is_secret: 0, value_plain: null, hint: "Alternative to SMTP: the /exec URL of an Apps Script web app that sends mail from your own Gmail account. No mail account or app password needed." },
   { id: "int_smtp_host", key: "smtp_host", label: "Email (SMTP) host", is_secret: 0, value_plain: null, hint: "Required before email notifications can be sent. Until then, notifications appear in-app only." },
   { id: "int_smtp_port", key: "smtp_port", label: "Email (SMTP) port", is_secret: 0, value_plain: null, hint: "Usually 587 (STARTTLS) or 465 (implicit TLS)." },
   { id: "int_smtp_user", key: "smtp_user", label: "Email (SMTP) username", is_secret: 0, value_plain: null, hint: "Login for the SMTP relay." },

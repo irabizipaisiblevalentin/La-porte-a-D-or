@@ -28,6 +28,37 @@ that group's administrator for an approve/reject decision.
 That's it. You never have to open the **Triggers** dialog — step 6 creates the
 form-submit trigger for you.
 
+## Optional: send the platform's e-mail through this Google account
+
+The same script can send the platform's e-mail — the member's sign-in details
+after an approval — straight from this Google account. **No SMTP relay, no app
+password, no extra account.** This is the free, code-only alternative to signing
+up with a mail provider (see [Email](../INTEGRATIONS.md#email)).
+
+1. Paste the current `Code.gs` (it contains the mail `doPost` handler) and
+   **Save**.
+2. In the **function dropdown**, choose **`sendTestMail`** and click **Run**.
+   Approve the new *"Send email as you"* permission; a test message arrives in
+   this account's inbox.
+3. **Deploy → New deployment → Web app**:
+   - **Execute as:** *Me*
+   - **Who has access:** **Anyone**
+   Copy the resulting `/exec` URL.
+4. Paste that URL into the app under **Settings → Integrations → Apps Script mail
+   web app URL**. The **Google webhook signing secret** must already be set: it
+   signs every mail call, and the URL is ignored without it.
+
+Quota (Google's, not ours): a free consumer account may send to **100
+recipients/day** (1,500 on Workspace). One approval sends one message, so this is
+far more than the choir needs.
+
+### Why "Who has access: Anyone" is safe
+
+The URL alone cannot send anything: every call must carry an HMAC-SHA256
+signature over the recipient, subject and body, keyed by `CONFIG.SECRET`, and a
+call older than 15 minutes is refused. A stranger who finds the URL can only make
+the script answer `{"ok":false,"error":"bad signature"}`.
+
 ## Troubleshooting
 
 ### "You cannot create a trigger without a target function, please add functions to the attached script."
@@ -73,6 +104,29 @@ The `SECRET` in `Code.gs` does not match the platform's signing secret. Re-copy
 it from **Settings → Integrations**, or clear the platform secret to accept
 unsigned requests while testing.
 
+### The mail web app answers "Script function not found: doGet"
+
+Opening the `/exec` URL in a browser sends a **GET**, and only `doPost` exists.
+This is expected — the browser is not how the platform calls it. To prove the
+mail path works, run `sendTestMail` from the editor instead.
+
+### Approvals are not e-mailed ("bad signature" / "stale request")
+
+- **bad signature** — the platform's **Google webhook signing secret** differs
+  from `CONFIG.SECRET` in the script. Re-copy one to the other.
+- **stale request** — the server clock and Google's are more than 15 minutes
+  apart, or an old request was replayed.
+
+Both are recorded in **Settings → Integrations → Recent integration runs** with
+the script's own wording. Check **Apps Script → Executions** for the same call.
+
+### E-mail quota reached
+
+`MailApp.sendEmail` throws *"Service invoked too many times: email"* once a
+consumer account has mailed to 100 recipients in a day (1,500 on Workspace). The
+platform records exactly that message and tells the approver; credentials can
+still be handed over with the WhatsApp/SMS/Copy buttons on the member's page.
+
 ### Nothing is delivered (HTTP 5xx / network)
 
 - Confirm the host is reachable and `ENDPOINT` has no trailing slash.
@@ -82,7 +136,9 @@ unsigned requests while testing.
 ## Optional manifest
 
 If you use the manifest view (**Project Settings → "Show appsscript.json"**), you
-can paste `appsscript.json` to pin the V8 runtime and list the exact scopes.
+can paste `appsscript.json` to pin the V8 runtime and list the exact scopes
+(`script.external_request`, `script.scriptapp`, `script.send_mail`,
+`forms.currentonly`, `spreadsheets`).
 It is **not required** — Apps Script auto-detects scopes from the code.
 
 ## How a submission flows
