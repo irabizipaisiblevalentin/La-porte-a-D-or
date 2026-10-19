@@ -413,7 +413,10 @@ field mapping.
   that account is cleared while the history stays uneditable), and
   e-mail through a Google Apps Script mail web app (the credentials are posted to the configured web
   app and the signature verifies, the 302 Apps Script answers with is followed as Google requires
-  (POST delivers the message, GET reads the reply — against a real deployment), a refusal from the
+  (POST delivers the message, GET reads the reply — against a real deployment), the signed text is
+  folded to plain ASCII first because `Utilities.computeHmacSha256Signature` signs a 7-bit view of a
+  String — every other character counts as one `?` — so an accented name or an arrow would otherwise
+  be refused with "bad signature", a refusal from the
   script is reported as a
   failure, an endpoint without the signing secret is not treated as configured, and an unreachable web
   app never undoes the membership).

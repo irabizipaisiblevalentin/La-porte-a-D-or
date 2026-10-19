@@ -14,7 +14,10 @@
  *  - a refusal from the script (MailApp quota, bad address) is reported as a
  *    failure rather than a success;
  *  - an unsigned endpoint setting is not treated as "configured", so the app
- *    still says delivery is not configured rather than pretending.
+ *    still says delivery is not configured rather than pretending;
+ *  - the signed text is folded to ASCII first: Apps Script signs a 7-bit view of
+ *    the message (every other character becomes "?"), so an accented name or the
+ *    "->" arrow would otherwise make the digests differ and nothing would send.
  */
 import { test, after, before } from "node:test"
 import assert from "node:assert/strict"
@@ -40,6 +43,7 @@ const { seedDefaultAccounts, defaultAccounts } = await import("../../src/db/seed
 const { createApp } = await import("../../src/app.js")
 const { config } = await import("../../src/config.js")
 const { hmacSha256Hex } = await import("../../src/lib/security.js")
+const { asciiSafeMailText } = await import("../../src/services/email.js")
 
 const COOKIE = config.session.cookieName
 const CHAIRMAN_EMAIL = "chairman@laportedor.local"
@@ -135,6 +139,7 @@ interface MailCall {
   text: string
   signature: string
   method: string
+  signatureOk: boolean
 }
 
 interface StandIn {
@@ -143,6 +148,20 @@ interface StandIn {
   setReply: (reply: { status: number; body: string }) => void
   postHops: number
   close: () => Promise<void>
+}
+
+/**
+ * What the deployed script computes, byte for byte.
+ *
+ * `Utilities.computeHmacSha256Signature` turns a String message into 7-bit
+ * ASCII, writing anything outside that set as one "?" — measured against the
+ * live deployment, not guessed. Keeping the stand-in faithful is what makes
+ * these tests able to catch a signature that would really be refused.
+ */
+function scriptSignature(secret: string, call: { ts: string; to: string; subject: string; text: string }): string {
+  const message = [call.ts, call.to, call.subject, call.text].join("\n")
+  const ascii = message.replace(/[^\t\n\r\x20-\x7E]/g, "?")
+  return hmacSha256Hex(secret, ascii)
 }
 
 async function startMailWebApp(): Promise<StandIn> {
@@ -167,7 +186,7 @@ async function startMailWebApp(): Promise<StandIn> {
       }
       let parsed: any = null
       try { parsed = JSON.parse(body) } catch { parsed = null }
-      if (parsed) calls.push({ ...parsed, method: req.method ?? "" })
+      if (parsed) calls.push({ ...parsed, method: req.method ?? "", signatureOk: parsed.signature === scriptSignature(SECRET, parsed) })
       res.writeHead(302, { location: `http://127.0.0.1:${(app.address() as any).port}/usercontent` })
       res.end()
       return
@@ -246,6 +265,7 @@ test("an approval delivers the sign-in details through the Apps Script web app",
     assert.equal(relay.calls.length, 1, "exactly one mail call reached the web app")
     const call = relay.calls[0]
     assert.equal(call.method, "POST", "the message is delivered by the POST to /exec")
+    assert.equal(call.signatureOk, true, "the script's own signature check accepts the call")
     assert.equal(relay.postHops, 0, "the 302 is followed with a GET; a POST there is refused by Apps Script")
     assert.equal(call.to, "delivered@example.com")
     assert.ok(call.text.includes(approved.credentials.password), "the message carries the member's password")
@@ -302,4 +322,35 @@ test("an unreachable mail web app does not undo the membership", async () => {
   } finally {
     await configureMail(chairman, { mail_webhook_url: null })
   }
+})
+
+test("an accented name, or an arrow in our own wording, still verifies", async () => {
+  const chairman = await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!)
+  const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
+  const relay = await startMailWebApp()
+  try {
+    await configureMail(chairman, { mail_webhook_url: relay.url, google_webhook_secret: SECRET })
+
+    const approved = await approveAs(senior, await submitApplication("François Niyonzima", "accented@example.com", "Senior"))
+    assert.equal(approved.delivery.sent, true, JSON.stringify(approved.delivery))
+
+    const call = relay.calls[0]
+    assert.equal(call.signatureOk, true, "signed over ASCII, so the script accepts it")
+    // Nothing outside 7-bit ASCII ever leaves the server for the web app.
+    assert.match(`${call.subject}\n${call.text}`, /^[\t\n\r\x20-\x7E]*$/)
+    assert.ok(call.text.includes("Francois Niyonzima"), "the accent is folded, not dropped")
+    assert.ok(call.text.includes("Account -> Password"))
+  } finally {
+    await relay.close()
+    await configureMail(chairman, { mail_webhook_url: null })
+  }
+})
+
+test("asciiSafeMailText folds the characters the choir's own copy uses", () => {
+  assert.equal(asciiSafeMailText("Account → Password"), "Account -> Password")
+  assert.equal(asciiSafeMailText("week one — week two"), "week one - week two")
+  assert.equal(asciiSafeMailText("François d'Or"), "Francois d'Or")
+  assert.equal(asciiSafeMailText("“quoted”"), '"quoted"')
+  assert.equal(asciiSafeMailText("line one\nline two"), "line one\nline two")
+  assert.equal(asciiSafeMailText("日本語"), "???")
 })

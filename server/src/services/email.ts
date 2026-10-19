@@ -69,6 +69,46 @@ export function mailWebhookSignature(secret: string, mail: { ts: string; to: str
   return hmacSha256Hex(secret, [mail.ts, mail.to, mail.subject, mail.text].join("\n"))
 }
 
+/**
+ * Typographic characters rewritten as their plain-ASCII equivalent. Em dashes,
+ * arrows and curly quotes are what the app's own copy is written with, so they
+ * turn up in mail bodies and subjects all the time.
+ */
+const TYPOGRAPHIC_TO_ASCII: Array<[RegExp, string]> = [
+  [/[\u2018\u2019\u201A\u201B\u2032]/g, "'"],
+  [/[\u201C\u201D\u201E\u201F\u2033]/g, '"'],
+  [/[\u2010-\u2015\u2212]/g, "-"],
+  [/\u2192/g, "->"],
+  [/\u2190/g, "<-"],
+  [/\u2026/g, "..."],
+  [/[\u00A0\u2007\u202F]/g, " "],
+  [/[\u00B7\u2022\u25CF]/g, "-"],
+  [/\u00D7/g, "x"],
+]
+
+/**
+ * Makes a subject or body safe to sign for the Apps Script mail web app.
+ *
+ * `Utilities.computeHmacSha256Signature` converts a String message to 7-bit
+ * ASCII, writing every character outside that set as a single "?". That was
+ * proved against the live deployment: a message containing "é" verifies only
+ * when each such character is signed as one "?". Node signs the real UTF-8
+ * bytes, so any name with an accent, or the "->" arrow in our own wording, would
+ * make the two digests differ — the script would refuse the call with
+ * "bad signature" and no mail would go out at all.
+ *
+ * Transliterating before signing removes the disagreement entirely: what we
+ * sign is plain ASCII, so the bytes are unambiguous on both sides whatever the
+ * runtime does with them. Accents are folded ("François" -> "Francois") rather
+ * than dropped, and anything still outside ASCII becomes "?".
+ */
+export function asciiSafeMailText(value: string): string {
+  let out = value
+  for (const [pattern, replacement] of TYPOGRAPHIC_TO_ASCII) out = out.replace(pattern, replacement)
+  out = out.normalize("NFKD").replace(/[\u0300-\u036F]/g, "")
+  return out.replace(/[^\t\n\r\x20-\x7E]/g, "?")
+}
+
 export function emailDeliveryConfigured(): boolean {
   return loadMailWebhook() !== null || loadSmtpConfig() !== null
 }
@@ -158,13 +198,14 @@ export const MAIL_WEBHOOK_TIMEOUT_MS = 20_000
  */
 async function sendViaWebhook(webhook: MailWebhookConfig, mail: { to: string; subject: string; text: string }): Promise<void> {
   const ts = nowIso()
+  // Signed and sent in plain ASCII (see asciiSafeMailText): Apps Script signs a
+  // 7-bit view of the message, so anything else would never verify.
+  const safe = { to: mail.to, subject: asciiSafeMailText(mail.subject), text: asciiSafeMailText(mail.text) }
   const body = JSON.stringify({
     action: "sendMail",
     ts,
-    to: mail.to,
-    subject: mail.subject,
-    text: mail.text,
-    signature: mailWebhookSignature(webhook.secret, { ts, ...mail }),
+    ...safe,
+    signature: mailWebhookSignature(webhook.secret, { ts, ...safe }),
   })
   const headers = { "content-type": "application/json" }
 

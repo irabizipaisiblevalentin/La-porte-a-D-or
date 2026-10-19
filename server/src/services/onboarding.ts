@@ -38,7 +38,7 @@ export function loginDetailsText(input: LoginDetails): string {
   lines.push(
     `  Password:       ${input.password}`,
     "",
-    "Please change this password after your first sign-in (Account → Password).",
+    "Please change this password after your first sign-in (Account -> Password).",
     "",
     config.appName,
   )

@@ -271,6 +271,14 @@ script ever refuses (for example the daily Gmail quota is reached), the reason i
 **Recent integration runs** and the approving administrator sees it immediately — nothing fails
 silently, and the credentials remain on screen for WhatsApp/SMS handover.
 
+Signing detail worth knowing when changing this code: the signature covers `ts`, recipient, subject
+and body, joined with newlines — and `Utilities.computeHmacSha256Signature` signs a **7-bit view** of
+that string, counting every character outside ASCII as a single `?`. The platform therefore folds mail
+text to plain ASCII before signing and sending (`asciiSafeMailText`: `→` becomes `->`, accents are
+folded, e.g. *François* → *Francois*). Without that, a member with an accented name — or the arrow in
+the app's own wording — made the two digests differ and the script refused every message with
+`bad signature`. Verified against a live deployment, not assumed.
+
 **Quota:** a free consumer Google account may send to **100 recipients/day** through Apps Script
 (Google Workspace: 1,500). A choir approving a handful of members a day is far below this, and the
 app sends e-mail from exactly one place (a member's sign-in details), so the real volume is tiny.
