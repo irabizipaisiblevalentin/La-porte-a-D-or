@@ -28,7 +28,7 @@ process.env.CHAIRMAN_PASSWORD = "ChairmanDelete!2026aa"
 process.env.SENIOR_ADMIN_PASSWORD = "SeniorDelete!2026bb"
 process.env.JUNIOR_ADMIN_PASSWORD = "JuniorDelete!2026cc"
 
-const { migrate, one } = await import("../../src/db/index.js")
+const { migrate, one, run } = await import("../../src/db/index.js")
 const { seed } = await import("../../src/db/seed.js")
 const { seedDefaultAccounts, defaultAccounts } = await import("../../src/db/seed-admins.js")
 const { createApp } = await import("../../src/app.js")
@@ -214,6 +214,45 @@ test("the Chairman removes a withdrawn record, its account, its photo and keeps 
   )!
   assert.equal(audited.n, 1, "the removal is recorded once in the audit trail")
   assert.match(audited.summary, /removed from the register/i)
+})
+
+test("a member whose account wrote to the audit trail can still be removed", async () => {
+  const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
+  const member = await createWithdrawnMember(senior, "Delete Audited", "delete-audited@example.com")
+
+  // The account signed in at least once, so the immutable trail holds a row that
+  // points back at it. `audit_logs.actor_id` is declared ON DELETE SET NULL: the
+  // removal has to clear that pointer. The append-only trigger used to refuse it,
+  // which made any account that had ever done anything impossible to delete.
+  run(
+    `INSERT INTO audit_logs (id, actor_id, actor_name, action, entity_type, entity_id, summary, created_at)
+     VALUES (?, ?, ?, 'auth.login', 'user', ?, ?, ?)`,
+    "aud-member-signin", member.userId, "Delete Audited", member.userId,
+    "delete-audited@example.com signed in", new Date().toISOString(),
+  )
+
+  const chairman = await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!)
+  const historyBefore = one<{ n: number }>("SELECT COUNT(*) AS n FROM audit_logs")!.n
+
+  const res = await api("DELETE", `/api/members/${member.memberId}`, { cookie: chairman })
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+
+  assert.equal(one("SELECT id FROM users WHERE id = ?", member.userId), undefined, "the account is gone")
+
+  const kept = one<{ actor_id: string | null; actor_name: string; summary: string }>(
+    "SELECT actor_id, actor_name, summary FROM audit_logs WHERE id = 'aud-member-signin'",
+  )
+  assert.ok(kept, "the history row itself is kept")
+  assert.equal(kept?.actor_id, null, "the pointer to the deleted account is cleared")
+  assert.equal(kept?.actor_name, "Delete Audited", "the actor is still named in the trail")
+  assert.match(kept?.summary ?? "", /signed in/, "the recorded history is unchanged")
+
+  const historyAfter = one<{ n: number }>("SELECT COUNT(*) AS n FROM audit_logs")!.n
+  assert.equal(historyAfter, historyBefore + 1, "nothing is lost; only the removal itself is appended")
+
+  // The trail stays append-only: history can be neither edited nor deleted.
+  assert.throws(() => run("UPDATE audit_logs SET summary = 'tampered' WHERE id = 'aud-member-signin'"), /append-only/)
+  assert.throws(() => run("DELETE FROM audit_logs WHERE id = 'aud-member-signin'"), /append-only/)
 })
 
 after(() => {

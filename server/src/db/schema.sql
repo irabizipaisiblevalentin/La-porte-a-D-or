@@ -679,7 +679,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 -- ---------------------------------------------------------------------------
--- Audit log (append-only; triggers below reject UPDATE/DELETE)
+-- Audit log (append-only; the triggers below reject DELETE and every UPDATE
+-- except clearing the actor pointer when that account is deleted)
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -700,6 +701,23 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 
 CREATE TRIGGER IF NOT EXISTS audit_logs_no_update
 BEFORE UPDATE ON audit_logs
+WHEN NOT (
+  -- The single permitted change: the actor's account was deleted, and the
+  -- declared `ON DELETE SET NULL` cleared the pointer to it. Every other column
+  -- has to be untouched, so no recorded history can be rewritten; `actor_name`
+  -- is denormalised on each row and keeps the trail readable.
+  NEW.actor_id IS NULL
+  AND OLD.actor_id IS NOT NULL
+  AND NEW.id IS OLD.id
+  AND NEW.actor_name IS OLD.actor_name
+  AND NEW.action IS OLD.action
+  AND NEW.entity_type IS OLD.entity_type
+  AND NEW.entity_id IS OLD.entity_id
+  AND NEW.summary IS OLD.summary
+  AND NEW.change_detail IS OLD.change_detail
+  AND NEW.ip_address IS OLD.ip_address
+  AND NEW.created_at IS OLD.created_at
+)
 BEGIN
   SELECT RAISE(ABORT, 'audit_logs is append-only');
 END;

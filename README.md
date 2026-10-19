@@ -392,7 +392,7 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 66 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 67 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
   role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
   `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
@@ -404,7 +404,9 @@ field mapping.
   upload durability (every upload mirrored into the bucket, served from the bucket — and re-cached —
   after the disk is wiped, private files only after the authorization check, deletion propagated,
   no bucket call for unknown paths and traversal refused), removing a member record (Chairman
-  only, withdrawn records only, account and photograph erased, application and audit trail kept), and
+  only, withdrawn records only, account and photograph erased, application and audit trail kept —
+  including when the removed account had itself written to the append-only trail, whose pointer to
+  that account is cleared while the history stays uneditable), and
   e-mail through a Google Apps Script mail web app (the credentials are posted to the configured web
   app and the signature verifies, the 302 Apps Script always answers with is repeated as a POST rather
   than downgraded to a GET that would silently send nothing, a refusal from the script is reported as a
