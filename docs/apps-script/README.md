@@ -40,10 +40,16 @@ up with a mail provider (see [Email](../INTEGRATIONS.md#email)).
 2. In the **function dropdown**, choose **`sendTestMail`** and click **Run**.
    Approve the new *"Send email as you"* permission; a test message arrives in
    this account's inbox.
-3. **Deploy → New deployment → Web app**:
-   - **Execute as:** *Me*
-   - **Who has access:** **Anyone**
-   Copy the resulting `/exec` URL.
+3. Deploy the web app:
+   - **First time:** **Deploy → New deployment → Web app**:
+     - **Execute as:** *Me*
+     - **Who has access:** **Anyone**
+     Copy the resulting `/exec` URL.
+   - **Already deployed (you added the mail code afterwards):**
+     **Deploy → Manage deployments →** pencil icon **→ Version: New version →
+     Deploy**. The URL stays the same, and this step is what actually puts
+     `doPost` on it — skip it and the URL only ever answers *"Script function not
+     found: doPost"*, so nothing is ever sent.
 4. Paste that URL into the app under **Settings → Integrations → Apps Script mail
    web app URL**. The **Google webhook signing secret** must already be set: it
    signs every mail call, and the URL is ignored without it.
@@ -109,6 +115,12 @@ unsigned requests while testing.
 Opening the `/exec` URL in a browser sends a **GET**, and only `doPost` exists.
 This is expected — the browser is not how the platform calls it. To prove the
 mail path works, run `sendTestMail` from the editor instead.
+
+### The mail web app answers "Script function not found: doPost"
+
+The **deployed version** predates the mail code. Saving `Code.gs` is not enough:
+go to **Deploy → Manage deployments →** pencil icon **→ Version: New version →
+Deploy** and try again.
 
 ### Approvals are not e-mailed ("bad signature" / "stale request")
 

@@ -255,8 +255,13 @@ carries a `doPost` handler that sends mail, and the platform signs every message
    **Save**.
 2. In the function dropdown choose **`sendTestMail`** and **Run** once — approve the new
    *"Send email as you"* permission. A test message arrives in that Google account's inbox.
-3. **Deploy → New deployment → Web app**, with **Execute as: Me** and **Who has access: Anyone**.
-   Copy the `/exec` URL.
+3. Deploy the web app:
+   - **First time:** **Deploy → New deployment → Web app**, with **Execute as: Me** and
+     **Who has access: Anyone**. Copy the `/exec` URL.
+   - **Already deployed, and you added the mail code afterwards:** **Deploy → Manage deployments →**
+     the pencil icon **→ Version: New version → Deploy**. The URL stays the same, and the new version
+     is what actually contains `doPost` — without it the URL answers *"Script function not found:
+     doPost"* and no mail is ever sent.
 4. In **Settings → Integrations**, set **Apps Script mail web app URL** (`mail_webhook_url`) to that
    `/exec` URL. The **Google webhook signing secret** must already be set — it signs the mail calls,
    and without it the URL is ignored (an unsigned endpoint would let anyone send mail as the choir).
