@@ -36,8 +36,11 @@ function supported(): boolean {
  * This is the practical, no-third-party-service option. Web notifications only
  * fire while the site is open in a tab (or installed as an app); true background
  * push would need a push service (e.g. VAPID web-push) or SMS/e-mail.
+ *
+ * `enabled: false` stops the polling entirely — used while a member is still on a
+ * temporary password, when the server refuses every endpoint it would call.
  */
-export function useDesktopNotifications() {
+export function useDesktopNotifications({ enabled = true }: { enabled?: boolean } = {}) {
   const { can } = useAuth()
   const toast = useToast()
   const [permission, setPermission] = useState<NotificationPermission>(
@@ -114,13 +117,14 @@ export function useDesktopNotifications() {
       }
     }
 
+    if (!enabled) return
     void poll()
     const timer = window.setInterval(poll, 30_000)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [canReadMessages, show, toast])
+  }, [enabled, canReadMessages, show, toast])
 
   return { permission, request, supported: supported() }
 }

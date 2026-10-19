@@ -227,7 +227,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false)
   const location = useLocation()
   const { user } = useAuth()
-  const notifications = useDesktopNotifications()
+  const notifications = useDesktopNotifications({ enabled: !user?.mustChangePassword })
 
   useEffect(() => setDrawer(false), [location.pathname])
 
@@ -235,6 +235,31 @@ export function AppShell({ children }: { children: ReactNode }) {
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <Spinner size={22} />
+      </div>
+    )
+  }
+
+  // A temporary password closes the rest of the platform. Only the account page
+  // is rendered: no navigation to pages the server refuses, and no bell or unread
+  // counters polling endpoints that would answer 403 until the password is set.
+  if (user.mustChangePassword) {
+    return (
+      <div className="flex min-h-dvh flex-col bg-ivory dark:bg-charcoal-950">
+        <header className="flex h-16 items-center gap-3 border-b border-black/10 bg-white/85 px-4 backdrop-blur dark:border-gold-400/15 dark:bg-charcoal-900/85">
+          <Brand />
+          <div className="ml-auto">
+            <ThemeToggle />
+          </div>
+        </header>
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-3xl">
+            <RestoreAlertBanner />
+            {children}
+          </div>
+        </main>
+        <footer className="px-6 py-4 text-center text-[11px] text-black/40 dark:text-ivory/35">
+          Chorale La Porte d'Or · Digital Choir Management Platform
+        </footer>
       </div>
     )
   }

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { Outlet, Route, Routes } from "react-router-dom"
-import { RequireAuth, RequirePermission } from "./auth/guards"
+import { RequireAuth, RequirePasswordChange, RequirePermission } from "./auth/guards"
 import { AppShell } from "./components/layout/AppShell"
 import { ContactChairman } from "./components/layout/ContactChairman"
 import { PublicLayout } from "./components/layout/PublicLayout"
@@ -65,9 +65,11 @@ export function App() {
         path="/app"
         element={
           <RequireAuth>
-            <AppShell>
-              <Outlet />
-            </AppShell>
+            <RequirePasswordChange>
+              <AppShell>
+                <Outlet />
+              </AppShell>
+            </RequirePasswordChange>
           </RequireAuth>
         }
       >

@@ -52,7 +52,9 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
 
   const setupStatus = useQuery<{ needsSetup: boolean }>("/setup/status")
 
-  if (!loading && user) return <Navigate to="/app" replace />
+  // A member who already has a session and is still on a temporary password goes
+  // straight to the account page, never to a page the server will refuse.
+  if (!loading && user) return <Navigate to={user.mustChangePassword ? "/app/account" : "/app"} replace />
 
   const from = (location.state as { from?: string } | null)?.from ?? "/app"
 

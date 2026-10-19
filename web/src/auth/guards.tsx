@@ -20,6 +20,23 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * While a temporary password is in use, the platform stays closed: only the
+ * account page — where the new password is set — is reachable.
+ *
+ * The server refuses every other call until the flag is cleared, so without this
+ * a member who reloads the site (or follows a link) lands on a page whose data
+ * can never load, and reads that as a fault of the choir's platform.
+ */
+export function RequirePasswordChange({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  const location = useLocation()
+  if (user?.mustChangePassword && location.pathname !== "/app/account") {
+    return <Navigate to="/app/account" replace />
+  }
+  return <>{children}</>
+}
+
 export function RequirePermission({
   permission,
   scope,

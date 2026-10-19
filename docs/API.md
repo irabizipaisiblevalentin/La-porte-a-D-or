@@ -14,7 +14,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /auth/login` `{ email, password }` -> `{ user }`
 - `POST /auth/logout` -> `{ ok }`
 - `GET /auth/me` -> `{ user | null }`
-- `POST /auth/password` `{ currentPassword, newPassword }` -> `{ ok }`
+- `POST /auth/password` `{ currentPassword, newPassword }` -> `{ ok }`. This is also the way out of a temporary password: while `mustChangePassword` is set, every other authenticated route answers 403, and the whole `/auth` router stays open (change, reset, invitation, logout).
 - `POST /auth/password/request` `{ email }` -> `{ ok, message, emailDeliveryConfigured }`
 - `POST /auth/password/reset` `{ token, password }` -> `{ ok }`
 - `GET /auth/invitation/:token` -> `{ invitation: { email, fullName } }`

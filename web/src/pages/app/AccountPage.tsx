@@ -31,6 +31,9 @@ export function AccountPage() {
   if (!user) return null
 
   const permissionEntries = Object.entries(user.permissions) as [string, PermissionScope[]][]
+  // Read before the change: a temporary password closes the rest of the platform,
+  // and that is what decides whether to move on to the dashboard afterwards.
+  const wasTemporary = user.mustChangePassword
 
   async function changePassword(event: FormEvent) {
     event.preventDefault()
@@ -48,6 +51,9 @@ export function AccountPage() {
       setConfirm("")
       await refresh()
       toast.success("Your password has been updated.")
+      // The rest of the platform opens up now; go there instead of leaving the
+      // member staring at the form that just closed.
+      if (wasTemporary) navigate("/app", { replace: true })
     } catch (caught) {
       if (caught instanceof ApiError) {
         setError(caught.message)
@@ -69,9 +75,10 @@ export function AccountPage() {
 
       {user.mustChangePassword ? (
         <div className="rounded-xl border border-gold-400/40 bg-gold-400/10 px-4 py-3 text-sm">
-          <p className="font-medium">You are using a temporary password</p>
+          <p className="font-medium">Set your own password to open the rest of the platform</p>
           <p className="muted mt-0.5">
-            Please set a new password below. Until you do, you will be reminded on each sign-in.
+            You signed in with the password an administrator gave you. Choose a new one below — until you do,
+            every other page stays closed.
           </p>
         </div>
       ) : null}

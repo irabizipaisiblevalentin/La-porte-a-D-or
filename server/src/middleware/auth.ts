@@ -25,10 +25,25 @@ export function attachAuth(req: Request, _res: Response, next: NextFunction): vo
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   if (!req.auth) return next(unauthorized())
-  if (req.auth.mustChangePassword && req.path !== "/api/auth/password" && !req.path.startsWith("/api/auth/")) {
+  if (req.auth.mustChangePassword && !isSessionRoute(req)) {
     return next(forbidden("You must set a new password before continuing."))
   }
   next()
+}
+
+/**
+ * Routes that stay open while a temporary password is in use: the `/api/auth`
+ * router, whose `POST /password` is the only thing that can clear the flag.
+ *
+ * The full path is rebuilt from `baseUrl + path` because Express strips the mount
+ * point inside a mounted router: there, `req.path` is just "/password", so the
+ * earlier check against "/api/auth/password" never matched. The member was then
+ * refused the one route that would let them in — and stayed locked out of the
+ * whole platform for good.
+ */
+function isSessionRoute(req: Request): boolean {
+  const full = `${req.baseUrl}${req.path}`
+  return full === "/api/auth" || full.startsWith("/api/auth/")
 }
 
 /** Requires a permission at a fixed scope. */

@@ -543,6 +543,11 @@ field mapping.
   **creates missing** accounts and never modifies existing ones; in production, accounts still
   carrying a sample password must choose their own at first sign-in. Change or delete the sample
   credentials before any real deployment (or set the `*_PASSWORD` environment variables).
+- A temporary password (a sample account's, or the one approval e-mails to a new member) closes the
+  platform until it is changed: every authenticated route answers 403 except the `/auth` router, so
+  changing the password, requesting a reset, accepting an invitation and signing out all still work.
+  The web app sends such a user straight to **My Account** — the only page it renders — instead of
+  leaving them on a dashboard that cannot load.
 - Secrets (integration keys/credentials): AES-256-GCM at rest; never returned to the browser.
 - Every protected request checks authorization server-side, including group isolation; id/param
   tampering cannot bypass it.
