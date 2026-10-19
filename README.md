@@ -306,6 +306,10 @@ Settings, integrations, brand uploads and the audit log are **Chairman only** (o
 So is **removing a withdrawn member record** (`member.delete`), which erases the record and the
 sign-in account created at approval while keeping the application and the audit trail.
 
+Each group's administrator can also **issue a fresh sign-in password** for a member of their own
+group (`member.reset_password`), so a locked-out member never has to wait for the Chairman. A reset
+retires the old password, voids any pending reset link and signs the member's other devices out.
+
 Any signed-in member also has `messages.send`, which powers the **“Message the Chairman”** button
 (the floating button on every app screen, and the **Messages** page). The Chairman holds
 `messages.read` / `messages.reply` and answers from their inbox; the conversation — including the

@@ -5,11 +5,13 @@ import { one, all, run, transaction } from "../db/index.js"
 import { getGroupById, listGroups, listVoiceSections } from "../services/groups.js"
 import { assertGroupAccess, permittedGroupIds, requireAuth, requirePermission } from "../middleware/auth.js"
 import { createMemberRecord, getMember, getMemberDetail } from "../services/members.js"
-import { rememberedPassword } from "../services/credentials.js"
+import { rememberedPassword, hashAndRemember } from "../services/credentials.js"
 import { deliverLoginDetails } from "../services/onboarding.js"
 import { badRequest, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { recordAudit } from "../lib/audit.js"
+import { generatePassword } from "../lib/security.js"
+import { revokeAllSessions } from "../auth/session.js"
 import { imageUpload } from "../middleware/upload.js"
 import { deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
 import { nowIso } from "../lib/time.js"
@@ -314,6 +316,72 @@ membersRouter.post("/:id/send-credentials", requireAuth, requirePermission("memb
     ip: req.ip,
   })
   res.json({ delivery })
+})
+
+/**
+ * Gives one member a brand-new sign-in password and hands it over.
+ *
+ * This is the group administrator's own remedy for a member who lost their
+ * password, so nobody has to wait for the Chairman. It is deliberately heavier
+ * than sending the old details: a reset is often the answer to "someone else is
+ * using my account", so the previous password stops working, every outstanding
+ * reset link is voided and the member's live sessions are closed.
+ */
+membersRouter.post("/:id/reset-password", requireAuth, requirePermission("member.reset_password"), async (req, res) => {
+  const member = getMember(String(req.params.id))
+  if (!member) throw notFound("That member does not exist.")
+  if (!canActOnMember(req.auth!, "member.reset_password", member)) throw forbidden()
+  const userId = member.user_id
+  if (!userId) throw badRequest("This member has no sign-in account yet.")
+  const account = one<{ email: string; username: string | null }>(
+    "SELECT email, username FROM users WHERE id = ?", userId,
+  )
+  if (!account) throw badRequest("This member has no sign-in account yet.")
+
+  const password = generatePassword()
+  // `hash` is what the next sign-in is checked against, `enc` keeps the plain
+  // text readable so the administrator can hand it over — same pair as approval.
+  const { hash, enc } = hashAndRemember(password)
+  const timestamp = nowIso()
+  transaction(() => {
+    run(
+      `UPDATE users SET password_hash = ?, password_enc = ?, must_change_password = 1,
+                        failed_login_count = 0, locked_until = NULL, updated_at = ?
+        WHERE id = ?`,
+      hash, enc, timestamp, userId,
+    )
+    // Anything tied to the old password dies with it.
+    run("DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL", userId)
+    revokeAllSessions(userId)
+  })
+
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "member.password_reset", entityType: "member", entityId: member.id,
+    summary: `Sign-in password reset for ${member.full_name}`,
+    detail: { memberNo: member.member_no, username: account.username, groupId: member.group_id },
+    ip: req.ip,
+  })
+
+  const delivery = await deliverLoginDetails({
+    fullName: member.full_name,
+    username: account.username,
+    email: account.email,
+    password,
+    groupName: member.group_name,
+    signInUrl: `${req.protocol}://${req.get("host") ?? ""}`,
+  })
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "member.credentials_sent", entityType: "member", entityId: member.id,
+    summary: delivery.sent
+      ? `New sign-in details for ${member.full_name} emailed to ${delivery.to}`
+      : `New sign-in details for ${member.full_name} were not emailed (${delivery.reason})`,
+    detail: { reason: delivery.reason, to: delivery.to },
+    ip: req.ip,
+  })
+
+  res.json({ credentials: { username: account.username, password }, delivery })
 })
 
 membersRouter.post("/:id/photo", requireAuth, requirePermission("member.write"), imageUpload.single("file"), (req, res) => {

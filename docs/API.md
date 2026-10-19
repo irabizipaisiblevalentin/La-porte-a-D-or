@@ -57,6 +57,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `PATCH /members/:id` `[perm: member.write/{group}]`
 - `DELETE /members/:id` `[perm: member.delete/global]` — Chairman only. Removes a **withdrawn** member, the account approval created and its photograph. The application is kept (its member link is cleared) and the removal is audited. An active member is refused: withdraw first.
 - `POST /members/:id/send-credentials` `[perm: member.write/{group}|own]` — re-emails the member their sign-in name and password; returns `{ delivery: { sent, to, reason } }` where `reason` is `sent`, `no_email`, `not_configured` or `send_failed`
+- `POST /members/:id/reset-password` `[perm: member.reset_password/{group}]` — generates a fresh password and returns `{ credentials: { username, password }, delivery }`. The old password stops working, pending reset links are voided and the member's signed-in sessions are closed; they choose their own password at the next sign-in.
 - `POST /members/:id/photo` `[perm: member.write/{group}|own]` multipart `file`
 
 ## Applications

@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  KeyRound,
   Mail,
   MapPin,
   Pencil,
@@ -227,6 +228,10 @@ export function MemberDetailPage() {
 
   const [editing, setEditing] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [resetCredentials, setResetCredentials] = useState<
+    { username: string | null; password: string; delivery: CredentialDelivery } | null
+  >(null)
   const [form, setForm] = useState<EditForm>(EMPTY_FORM)
   const [fields, setFields] = useState<Record<string, string>>({})
 
@@ -240,6 +245,11 @@ export function MemberDetailPage() {
     api.post<{ delivery: CredentialDelivery }>(`/members/${id}/send-credentials`),
   )
   const remove = useMutation(() => api.del<{ ok: boolean; memberNo: string }>(`/members/${id}`))
+  const resetPassword = useMutation(() =>
+    api.post<{ credentials: { username: string | null; password: string }; delivery: CredentialDelivery }>(
+      `/members/${id}/reset-password`,
+    ),
+  )
 
   const [revealed, setRevealed] = useState(false)
 
@@ -265,6 +275,11 @@ export function MemberDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remove.error])
 
+  useEffect(() => {
+    if (resetPassword.error) toast.error(resetPassword.error.message)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetPassword.error])
+
   // A password is revealed per visit and never for the next member.
   useEffect(() => {
     setRevealed(false)
@@ -279,6 +294,11 @@ export function MemberDetailPage() {
   // Removing a record is deliberately rare: the Chairman only, and only once the
   // member has been withdrawn (the server enforces both as well).
   const canRemove = can("member.delete") && member?.status === "withdrawn"
+  // A group administrator may reset a password for their own group's members;
+  // with a record that has no sign-in account there is nothing to reset.
+  const canResetPassword = Boolean(member?.user_id) && (scope
+    ? can("member.reset_password", scope)
+    : can("member.reset_password"))
 
   function startEdit() {
     if (!detail) return
@@ -403,6 +423,23 @@ export function MemberDetailPage() {
   }
 
   /** Erases a withdrawn record (its account and photograph go with it). */
+  /**
+   * Issues a fresh password after the administrator confirms. The new details
+   * are shown once in a dialog: a reset closes the member's other sessions, so
+   * there is no read-back here to rely on.
+   */
+  async function submitPasswordReset() {
+    const result = await resetPassword.run()
+    if (!result) return
+    setConfirmReset(false)
+    setResetCredentials({
+      username: result.credentials.username,
+      password: result.credentials.password,
+      delivery: result.delivery,
+    })
+    reload()
+  }
+
   async function onRemove() {
     setConfirmRemove(false)
     const result = await remove.run()
@@ -466,6 +503,16 @@ export function MemberDetailPage() {
                 onClick={onSendCredentials}
               >
                 Send sign-in details
+              </Button>
+            ) : null}
+            {canResetPassword ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<KeyRound size={15} />}
+                onClick={() => setConfirmReset(true)}
+              >
+                Reset password
               </Button>
             ) : null}
             {canWrite ? (
@@ -697,6 +744,76 @@ export function MemberDetailPage() {
           </CardBody>
         </Card>
       ) : null}
+
+      <Modal
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        title={`Reset ${member.full_name}'s password?`}
+        description="A new password is generated and the old one stops working straight away."
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmReset(false)} disabled={resetPassword.saving}>
+              Cancel
+            </Button>
+            <Button
+              variant="gold"
+              icon={<KeyRound size={15} />}
+              loading={resetPassword.saving}
+              onClick={submitPasswordReset}
+            >
+              Reset and show details
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          Use this when {member.full_name} cannot sign in — a forgotten password, or an account someone else has been
+          using. Their other signed-in devices are signed out, and any reset link they were sent stops working.
+        </p>
+      </Modal>
+
+      <Modal
+        open={Boolean(resetCredentials)}
+        onClose={() => setResetCredentials(null)}
+        title="New sign-in details"
+        description={`Hand these to ${member.full_name} — they stay visible on this record.`}
+        footer={
+          <Button variant="gold" onClick={() => setResetCredentials(null)}>
+            Done
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <div>
+            <p className="muted text-xs font-medium uppercase tracking-wide">Sign-in name</p>
+            <code className="mt-1 block rounded bg-black/5 px-2 py-1 font-mono text-sm dark:bg-white/10">
+              {resetCredentials?.username ?? "—"}
+            </code>
+          </div>
+          <div>
+            <p className="muted text-xs font-medium uppercase tracking-wide">Password</p>
+            <code className="mt-1 block rounded bg-black/5 px-2 py-1 font-mono text-sm tracking-wide dark:bg-white/10">
+              {resetCredentials?.password}
+            </code>
+          </div>
+          {resetCredentials ? (
+            <SignInShare
+              fullName={member.full_name}
+              username={resetCredentials.username}
+              email={member.email}
+              password={resetCredentials.password}
+              phone={detail?.contact?.phone}
+            />
+          ) : null}
+          <p className="muted text-xs">
+            {resetCredentials?.delivery.sent
+              ? `These were emailed to ${resetCredentials.delivery.to} as well.`
+              : "Email delivery is not available on this deployment, so hand these over directly."}{" "}
+            WhatsApp and SMS open on your own phone and cost nothing. {member.full_name} chooses their own password at
+            the next sign-in.
+          </p>
+        </div>
+      </Modal>
 
       <Modal
         open={confirmRemove}

@@ -19,6 +19,7 @@ export const PERMISSIONS: PermissionDef[] = [
 
   { key: "member.read", name: "View member records", description: "Read member profiles in the permitted group.", scopes: GROUP_SCOPED },
   { key: "member.write", name: "Manage member records", description: "Create and edit member profiles in the permitted group.", scopes: GROUP_SCOPED },
+  { key: "member.reset_password", name: "Reset member passwords", description: "Issue a fresh sign-in password for a member in the permitted group and hand it over. The old one stops working.", scopes: GROUP_SCOPED },
   { key: "member.sensitive.read", name: "View sensitive minor records", description: "Read guardian, emergency contact and detailed address data for juniors.", scopes: ["global", "junior"] },
   { key: "member.delete", name: "Remove member records", description: "Permanently remove a withdrawn member record and its sign-in from the register. Kept in the audit trail; the application history stays.", scopes: ["global"] },
 
@@ -97,7 +98,7 @@ export const ROLES: RoleDef[] = [
     grants: [
       g("dashboard.view", "global"),
       g("application.read", "senior"), g("application.review", "senior"), g("application.decide", "senior"),
-      g("member.read", "senior"), g("member.write", "senior"),
+      g("member.read", "senior"), g("member.write", "senior"), g("member.reset_password", "senior"),
       g("music.read", "global"), g("music.write", "global"), g("music.discovery", "global"),
       g("music.lyrics.write", "global"), g("music.audio.write", "global"), g("music.progress.write", "global"),
       g("attendance.read", "senior"), g("attendance.write", "senior"),
@@ -119,7 +120,7 @@ export const ROLES: RoleDef[] = [
     grants: [
       g("dashboard.view", "global"),
       g("application.read", "junior"), g("application.review", "junior"), g("application.decide", "junior"),
-      g("member.read", "junior"), g("member.write", "junior"), g("member.sensitive.read", "junior"),
+      g("member.read", "junior"), g("member.write", "junior"), g("member.reset_password", "junior"), g("member.sensitive.read", "junior"),
       g("music.read", "global"), g("music.write", "global"), g("music.discovery", "global"),
       g("music.lyrics.write", "global"), g("music.audio.write", "global"), g("music.progress.write", "global"),
       g("attendance.read", "junior"), g("attendance.write", "junior"),
@@ -141,7 +142,7 @@ export const ROLES: RoleDef[] = [
     grants: [
       g("dashboard.view", "global"),
       g("application.read", "members"), g("application.review", "members"), g("application.decide", "members"),
-      g("member.read", "members"), g("member.write", "members"),
+      g("member.read", "members"), g("member.write", "members"), g("member.reset_password", "members"),
       g("music.read", "global"),
       g("attendance.read", "members"), g("attendance.write", "members"),
       g("goals.read", "global"),
