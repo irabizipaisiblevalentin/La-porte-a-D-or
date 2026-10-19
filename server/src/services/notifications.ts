@@ -1,6 +1,7 @@
 import { all, db, run } from "../db/index.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
+import { sendInBackground, type PushPayload } from "./push.js"
 
 export interface NotifyInput {
   userId: string
@@ -16,6 +17,7 @@ export function notify(input: NotifyInput): void {
      VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
     id(), input.userId, input.type, input.title, input.body ?? null, input.link ?? null, nowIso(),
   )
+  pushToDevices([input])
 }
 
 export function notifyMany(inputs: NotifyInput[]): void {
@@ -30,6 +32,30 @@ export function notifyMany(inputs: NotifyInput[]): void {
       statement.run(id(), input.userId, input.type, input.title, input.body ?? null, input.link ?? null, timestamp)
     }
   })()
+  pushToDevices(inputs)
+}
+
+/**
+ * Mirrors notifications onto the recipients' own devices, so an administrator
+ * hears about a new application while the site is closed rather than when he
+ * next opens it. Identical messages are grouped, so one application to two
+ * administrators is one push each — not one push per row.
+ *
+ * Delivery happens in the background: the notification is already stored, and a
+ * slow or unreachable push service must never delay the request that caused it.
+ */
+function pushToDevices(inputs: NotifyInput[]): void {
+  const groups = new Map<string, { payload: PushPayload; userIds: string[] }>()
+  for (const input of inputs) {
+    const key = [input.title, input.body ?? "", input.link ?? ""].join("\u0000")
+    const group = groups.get(key) ?? {
+      payload: { title: input.title, body: input.body ?? null, link: input.link ?? null },
+      userIds: [],
+    }
+    group.userIds.push(input.userId)
+    groups.set(key, group)
+  }
+  for (const group of groups.values()) sendInBackground(group.userIds, group.payload)
 }
 
 /** Resolves the user IDs targeted by an audience selector, honouring group membership. */

@@ -44,7 +44,7 @@ gold/charcoal premium interface in light and dark themes.
 | **Discipline & recognition** | Negative and positive records with categories, history, and per-member views. |
 | **Goals** | Annual/monthly/custom goals with cumulative progress entries, percent complete, deadlines and overdue flags. |
 | **Events & training** | Events with participants and sung songs; training sessions with per-participant attendance and completion. |
-| **Communication** | Announcements (targeted audiences, priorities, scheduling) with starter templates and read tracking; in-app notifications. |
+| **Communication** | Announcements (targeted audiences, priorities, scheduling) with starter templates and read tracking; in-app notifications; free device notifications (Web Push) on a phone or laptop, including while the site is closed. |
 | **Reports** | Membership, attendance, discipline, music, goals, events and personal reports, all computed from the database. |
 | **Administration** | User accounts, role assignment, invitations, password resets, an append-only audit log, global search, application settings, integration settings and brand uploads. |
 
@@ -356,9 +356,10 @@ Submitting the form never creates an account. Only an approve decision — which
 `application.decide` permission at the correct group scope — creates a member and a sign-in account,
 in a single transaction, and writes an audit entry.
 
-**Credentials are generated at approval.** Because email delivery is not configured, approving an
-application mints the account **username and password** immediately and shows them to the approving
-administrator once, with a copy button. The password is random and easy to read aloud
+**Credentials are generated at approval.** Approving an application mints the account **username and
+password** immediately, sends them to the new member through the configured delivery channel, and
+shows them to the approving administrator once with a copy button (the fallback when delivery is not
+configured). The password is random and easy to read aloud
 (`Ingoma!4821-umwuka`), the account is active straight away, and the member is asked to choose their
 own password the first time they sign in.
 
@@ -481,6 +482,17 @@ field mapping.
   sender, the dashboard surfaces recent senders (“who is texting him”), the sidebar shows a live unread
   badge on Messages, and the web app raises a device/desktop notification (Web Notifications API) when a
   new message arrives.
+- **Device notifications (Web Push, free):** a group administrator registers a phone or laptop (My
+  Account → *Notifications on your devices*, or the bell icon in the header) and the server pushes a
+  real operating-system notification when a new application arrives — **even with the site closed**,
+  because the browser's push service holds the message and wakes the device. The VAPID signing key is
+  generated on first use and kept in the database (so it survives a deploy through Litestream); no
+  hosting-dashboard step and no third-party account. `push.test.ts` covers registration and the
+  published key, the intake push reaching the right group's administrator (one device, one push, link
+  on the application), a device following the account that signs in on it, `404`/`410` pruning of a
+  subscription the browser threw away, a failed delivery being recorded on the device, unsubscribing,
+  and a long body being shortened to one lock-screen line. Delivery uses a recorded transport in the
+  tests, so nothing leaves for a real push service during them.
 
 > The development database was reset for this launch: the previous test/demo rows (test singers,
 > testers, smoke songs) were removed. Reference data is re-seeded, so the site starts clean with only
@@ -494,11 +506,13 @@ field mapping.
 - **Google Sheets sync / webhook against a real sheet** — the signed, idempotent webhook endpoint was
   exercised with a realistic flat Google-Forms payload (name/email/group inferred), but not against a
   live Google Form/Apps Script deployment.
-- **Email/SMS delivery** — not configured; invitation/reset links are returned to the admin to share.
-  The “Message the Chairman” feature raises an **in-app notification and a device/desktop notification**
-  (Web Notifications API, shown while the app is open, on desktop and Android Chrome); it does **not**
-  send SMS or background push when the app is closed (that would need a push service such as VAPID
-  web-push).
+- **Email/SMS delivery** — the Apps Script mail channel is configured and sends credential e-mails (the
+  post, its signature and the 302 Apps Script answers with were verified live); **SMS** remains manual,
+  through the WhatsApp/SMS/copy buttons on the member record. The *“Message the Chairman”* feature
+  raises an in-app notification and a device notification — while a tab is open through the Web
+  Notifications API, and while the site is closed through Web Push (see *Device notifications* above).
+  The push path is unit-tested end to end with a recorded transport but has **not** been exercised from
+  a real phone or desktop browser in this environment.
 - **Browser/UI click-through and automated browser tests** — the UI compiles and builds and its API
   contracts are exercised, but no Playwright/end-to-end browser suite was run here.
 - **Multipart uploads against the real bucket** — member photos, song audio, application documents

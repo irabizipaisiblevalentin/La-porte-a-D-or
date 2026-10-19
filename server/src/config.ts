@@ -66,6 +66,20 @@ export const config = {
   memberNo: {
     prefix: "CHR",
   },
+  /**
+   * Device notifications (Web Push). Both keys are optional: without them the
+   * deployment generates its own signing pair once and keeps it in the database,
+   * so a real phone starts receiving notifications without anyone visiting the
+   * hosting dashboard (see `services/push.ts`).
+   */
+  push: {
+    publicKey: process.env.VAPID_PUBLIC_KEY?.trim() ?? "",
+    privateKey: process.env.VAPID_PRIVATE_KEY?.trim() ?? "",
+    /** Contact URI the push services can use if this sender misbehaves (VAPID requires one). */
+    subject: process.env.VAPID_SUBJECT?.trim() || "mailto:chairman@laportedor.local",
+    /** Give up on a slow push service rather than hold a request open. */
+    timeoutMs: Number(process.env.PUSH_TIMEOUT_MS ?? 8000),
+  },
 }
 
 /**

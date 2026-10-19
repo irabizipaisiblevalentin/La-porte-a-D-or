@@ -322,6 +322,49 @@ Channel **B** — use this when you already have a mailbox or a transactional pr
 
 ---
 
+## Device notifications (Web Push)
+
+The app's own notification list only helps somebody who already has the site open. Web Push is the
+free way to reach an administrator's **phone or laptop while the platform is closed**: a real
+operating-system notification, delivered by the browser's own push service. No third-party account, no
+gateway, no card — which is why it is the answer to *"SMS is not free"* above.
+
+**How it works.** A tiny service worker (`web/public/sw.js`) receives the message and raises the
+notification; tapping it opens the page it is about. The browser hands the server an **endpoint** for
+that device, stored per device on the account (`push_subscriptions`) — the same person can enable a
+phone and an office PC separately. The server signs each push with a **VAPID** key pair
+(`push_vapid_keys`), so a push service can tell that it comes from this deployment.
+
+**Enabling it.** My Account → *Notifications on your devices* → **Turn on for this device** (or the
+bell-with-sparkle icon in the header). The browser asks permission once; after that the device is
+listed with a *Send a test* button, which is the way to prove the phone actually rings before an
+application depends on it.
+
+**Who is told what** follows the same rules as the in-app notifications: a new application goes to the
+group's **own** administrator only (`junior_admin`, `senior_leader` or `members_admin`), the Chairman
+for member messages, and everyone for their own notifications. The Chairman sees every application on
+the dashboard, but is not pinged for every group's intake.
+
+**Keys.** `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` may be set as environment
+variables, but they are optional: with none set the deployment generates a pair on first use and keeps
+it in the database, which Litestream restores on every boot. That is deliberate — a new pair on each
+boot would silently silence every phone that had already subscribed, and the free plan offers no shell
+to run a key-generation step in. Only the public half is ever sent to a browser.
+
+**Limits and failure handling.** Android Chrome, desktop Chrome/Edge/Firefox work directly. On an
+**iPhone or iPad** the site must first be added to the Home Screen (Share → *Add to Home Screen*,
+iOS 16.4+) — the Account page says so when it detects iOS Safari. A subscription the push service
+answers `404`/`410` for is deleted (the browser threw it away); any other failure is recorded on the
+device and shown as *"Last attempt did not arrive"*, so a phone that has gone quiet is visible rather
+than silently ignored. A slim instance that has spun down is woken by the application webhook itself,
+which is what starts the push.
+
+The in-page poller (Web Notifications API, no service worker) remains as a fallback while a tab is
+open and is switched off automatically on a device that has Web Push registered, so nothing is
+announced twice.
+
+---
+
 ## Verifying what is configured
 
 - `GET /api/discovery/status` → `{ apiConfigured, channel, lastRun }` for YouTube.

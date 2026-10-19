@@ -157,6 +157,20 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /notifications/:id/read`
 - `POST /notifications/read-all`
 
+### Device notifications (Web Push)
+A notification row is only seen by somebody already looking at the site. These endpoints put the same
+message on a phone or laptop — delivered by the browser's own push service while the platform is
+closed — so the group's administrator hears about a new application without having the site open.
+- `GET /push/config` `[auth]` -> `{ enabled, publicKey, deviceCount, devices: [{ id, userAgent, createdAt, lastSuccessAt, lastFailureAt, failureReason }] }` — the **public** VAPID key the browser subscribes with; the private half never leaves the server.
+- `POST /push/subscribe` `[auth]` `{ endpoint, keys: { p256dh, auth } }` -> `{ ok, deviceCount }` — one row per device. Subscribing again on the same device re-points it to the account now signed in, so a shared phone does not keep notifying the previous user.
+- `POST /push/unsubscribe` `[auth]` `{ endpoint }` -> `{ ok, deviceCount }`
+- `POST /push/test` `[auth]` -> `{ ok, sent, failed, removed }` — a test notification to the caller's own devices.
+
+Subscriptions the push service reports as `404`/`410` are deleted (the browser threw them away); any
+other failure is recorded on the device (`lastFailureAt`, `failureReason`) so a phone that has gone
+quiet is visible on the account page. Delivery runs in the background and never delays the request
+that caused it — a new application is filed even if every push fails.
+
 ## Messages (talk to the Chairman)
 Any signed-in member may message the Chairman (`messages.send`). Only the Chairman may read the
 inbox or reply (`messages.read` / `messages.reply`).

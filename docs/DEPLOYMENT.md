@@ -79,6 +79,23 @@ Optional per account: `<PREFIX>_EMAIL`, `<PREFIX>_NAME` (e.g.
 `CHAIRMAN_NAME="Bunani Jean Marie Vianney"`). Passwords must be ≥10 characters
 with upper + lower + digit.
 
+### Device notifications (optional)
+
+Web Push reaches an administrator's phone or laptop while the platform is closed. **Nothing has to be
+configured**: with none of these set, the deployment generates a VAPID signing pair on first use and
+keeps it in the database, which Litestream restores on every boot. Set them only to pin a fixed
+identity (for example to share one across several instances).
+
+| Variable | Purpose |
+| --- | --- |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Optional VAPID key pair (base64url). **Keep it stable** — a new pair silently silences every device that already subscribed. Generate one with `npx web-push generate-vapid-keys`. |
+| `VAPID_SUBJECT` | Optional contact URI the push services may use, default `mailto:chairman@laportedor.local`. |
+| `PUSH_TIMEOUT_MS` | Optional, default `8000` — how long to wait for a push service before recording a failure. |
+
+A device is registered from **My Account → Notifications on your devices** (or the header bell icon);
+only the public half of the key is ever sent to a browser (`GET /api/push/config`). On an iPhone or
+iPad, the site must be added to the Home Screen first (iOS 16.4+).
+
 ### Durable storage (Backblaze B2)
 
 | Variable | Purpose |

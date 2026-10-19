@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
-import { LogOut, ShieldCheck } from "lucide-react"
+import { BellOff, BellRing, LogOut, Send, ShieldCheck } from "lucide-react"
 import { useAuth, type PermissionScope } from "../../auth/AuthProvider"
 import { api, ApiError } from "../../api/client"
+import { usePushNotifications, type PushNotificationsState } from "../../components/layout/usePushNotifications"
 import {
   Badge,
   Button,
@@ -20,6 +21,7 @@ export function AccountPage() {
   const { user, logout, refresh } = useAuth()
   const navigate = useNavigate()
   const toast = useToast()
+  const push = usePushNotifications({ enabled: !user?.mustChangePassword })
 
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -119,6 +121,8 @@ export function AccountPage() {
           </CardBody>
         </Card>
 
+        {user.mustChangePassword ? null : <DeviceNotificationsCard push={push} email={user.email} />}
+
         <Card>
           <CardHeader title="Change password" description="Use at least 10 characters with upper, lower and a number." />
           <CardBody>
@@ -217,4 +221,123 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-sm">{value}</span>
     </div>
   )
+}
+
+/**
+ * Lets the signed-in person put a notification on *this* device — phone or
+ * computer — including while the site is closed, and prove it with a test.
+ * Hidden while the account is still on a temporary password, because the server
+ * refuses every other endpoint until the member has chosen their own.
+ */
+function DeviceNotificationsCard({ push, email }: { push: PushNotificationsState; email: string }) {
+  return (
+    <Card>
+      <CardHeader
+        title="Notifications on your devices"
+        description="A notification on your phone or computer — including while this site is closed."
+      />
+      <CardBody className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">
+              {push.registered
+                ? "On for this device"
+                : push.supported
+                  ? "Off for this device"
+                  : "Not supported in this browser"}
+            </p>
+            <p className="muted text-xs">
+              {push.deviceCount > 0
+                ? `${push.deviceCount} device${push.deviceCount === 1 ? "" : "s"} receiving them for ${email}`
+                : "No device registered yet."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {push.registered ? (
+              <Button variant="outline" loading={push.busy} icon={<BellOff size={16} />} onClick={() => void push.disable()}>
+                Turn off on this device
+              </Button>
+            ) : (
+              <Button
+                variant="gold"
+                loading={push.busy}
+                disabled={!push.supported}
+                icon={<BellRing size={16} />}
+                onClick={() => void push.enable()}
+              >
+                Turn on for this device
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              loading={push.busy}
+              disabled={push.deviceCount === 0}
+              icon={<Send size={16} />}
+              onClick={() => void push.sendTest()}
+            >
+              Send a test
+            </Button>
+          </div>
+        </div>
+
+        {push.permission === "denied" ? (
+          <p className="text-sm text-[#b4544a]">
+            Notifications are blocked for this site in your browser settings. Allow them there, then turn them on again.
+          </p>
+        ) : null}
+
+        {!push.supported ? (
+          <p className="muted text-sm">
+            This browser cannot show device notifications. On an iPhone or iPad, open the site in Safari and choose
+            Share → Add to Home Screen, then turn notifications on from there.
+          </p>
+        ) : null}
+
+        {push.devices.length > 0 ? (
+          <div className="flex flex-col">
+            {push.devices.map((device) => (
+              <div key={device.id} className="flex flex-wrap items-center justify-between gap-2 border-b hairline py-1.5 last:border-0">
+                <span className="text-sm">{describeDevice(device.userAgent)}</span>
+                <span className="muted text-xs">
+                  {device.lastFailureAt && (!device.lastSuccessAt || device.lastFailureAt > device.lastSuccessAt)
+                    ? "Last attempt did not arrive"
+                    : device.lastSuccessAt
+                      ? `Last delivered ${new Date(device.lastSuccessAt).toLocaleString()}`
+                      : "Waiting for the first notification"}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
+
+/** A readable name for a registered device, so the list is not a wall of user-agent strings. */
+function describeDevice(userAgent: string | null): string {
+  if (!userAgent) return "Unnamed device"
+  const platform = /iPhone|iPad|iPod/.test(userAgent)
+    ? "iPhone / iPad"
+    : /Android/.test(userAgent)
+      ? "Android"
+      : /Windows/.test(userAgent)
+        ? "Windows"
+        : /Macintosh|Mac OS X/.test(userAgent)
+          ? "Mac"
+          : /Linux/.test(userAgent)
+            ? "Linux"
+            : "device"
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /OPR\//.test(userAgent)
+      ? "Opera"
+      : /Firefox\//.test(userAgent)
+        ? "Firefox"
+        : /Chrome\//.test(userAgent)
+          ? "Chrome"
+          : /Safari\//.test(userAgent)
+            ? "Safari"
+            : null
+  return browser ? `${browser} on ${platform}` : platform
 }

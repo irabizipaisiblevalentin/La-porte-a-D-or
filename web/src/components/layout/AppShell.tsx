@@ -5,6 +5,7 @@ import { useAuth } from "../../auth/AuthProvider"
 import { useQuery } from "../../api/hooks"
 import { Badge, Spinner, ThemeToggle } from "../../components/ui"
 import { useDesktopNotifications } from "./useDesktopNotifications"
+import { usePushNotifications, type PushNotificationsState } from "./usePushNotifications"
 import { RestoreAlertBanner } from "./RestoreAlertBanner"
 import { NAV_SECTIONS } from "./nav"
 
@@ -97,24 +98,19 @@ function NotificationBell() {
 }
 
 /**
- * Small header control that lets the signed-in user turn on desktop / device
- * notifications. It only appears while permission is still undecided so it never
- * nags someone who has already chosen.
+ * Header shortcut that puts notifications on the device being used. It disappears
+ * as soon as this device is registered, so it asks once and then stops nagging;
+ * a device whose notifications were blocked never shows it at all.
  */
-function EnableNotificationsButton({
-  permission,
-  onEnable,
-}: {
-  permission: ReturnType<typeof useDesktopNotifications>["permission"]
-  onEnable: () => void
-}) {
-  if (permission !== "default") return null
+function EnableDeviceNotifications({ push }: { push: PushNotificationsState }) {
+  if (!push.supported || push.registered || push.permission === "denied") return null
   return (
     <button
       className="btn btn-ghost btn-sm"
-      onClick={onEnable}
-      title="Get a pop-up on this device when something new arrives"
-      aria-label="Enable device notifications"
+      onClick={() => void push.enable()}
+      disabled={push.busy}
+      title="Get a notification on this device, even when the site is closed"
+      aria-label="Enable notifications on this device"
     >
       <BellRing size={17} />
     </button>
@@ -227,7 +223,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false)
   const location = useLocation()
   const { user } = useAuth()
-  const notifications = useDesktopNotifications({ enabled: !user?.mustChangePassword })
+  const push = usePushNotifications({ enabled: !user?.mustChangePassword })
+  // While this device is subscribed to push, the in-tab poller stays off: it
+  // would otherwise announce the same arrival a second time.
+  useDesktopNotifications({
+    enabled: !user?.mustChangePassword && !push.registered,
+  })
 
   useEffect(() => setDrawer(false), [location.pathname])
 
@@ -309,7 +310,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
-            <EnableNotificationsButton permission={notifications.permission} onEnable={notifications.request} />
+            <EnableDeviceNotifications push={push} />
             <NotificationBell />
             <ProfileMenu />
           </div>

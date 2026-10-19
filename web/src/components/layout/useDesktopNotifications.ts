@@ -33,12 +33,15 @@ function supported(): boolean {
  * pop-up, on Android Chrome a system notification. It also raises an in-app
  * toast so nothing is missed when notifications are not granted.
  *
- * This is the practical, no-third-party-service option. Web notifications only
- * fire while the site is open in a tab (or installed as an app); true background
- * push would need a push service (e.g. VAPID web-push) or SMS/e-mail.
+ * This is the no-service-worker fallback: it only fires while the site is open in
+ * a tab (or installed as an app). For a notification that arrives with the site
+ * closed, the device registers for Web Push instead
+ * (`components/layout/usePushNotifications.ts`) and this poller is switched off
+ * so the same arrival is not announced twice.
  *
  * `enabled: false` stops the polling entirely — used while a member is still on a
- * temporary password, when the server refuses every endpoint it would call.
+ * temporary password (when the server refuses every endpoint it would call) and
+ * on a device that Web Push already covers.
  */
 export function useDesktopNotifications({ enabled = true }: { enabled?: boolean } = {}) {
   const { can } = useAuth()

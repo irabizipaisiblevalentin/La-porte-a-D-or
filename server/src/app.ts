@@ -21,6 +21,7 @@ import { membersRouter } from "./routes/members.js"
 import { messagesRouter } from "./routes/messages.js"
 import { notificationsRouter } from "./routes/notifications.js"
 import { publicRouter } from "./routes/public.js"
+import { pushRouter } from "./routes/push.js"
 import { reportsRouter } from "./routes/reports.js"
 import { rolesRouter } from "./routes/roles.js"
 import { searchRouter } from "./routes/search.js"
@@ -77,6 +78,7 @@ export function createApp(): Express {
   app.use("/api/training", trainingRouter)
   app.use("/api/announcements", announcementsRouter)
   app.use("/api/notifications", notificationsRouter)
+  app.use("/api/push", pushRouter)
   app.use("/api/messages", messagesRouter)
   app.use("/api/reports", reportsRouter)
   app.use("/api/search", searchRouter)
@@ -98,6 +100,16 @@ export function createApp(): Express {
 
   // Single-page application fallback.
   if (fs.existsSync(webDistDir)) {
+    // The service worker is served with no caching on purpose: a stale copy is
+    // exactly what stops a repaired notification handler from reaching a phone.
+    const serviceWorker = path.join(webDistDir, "sw.js")
+    if (fs.existsSync(serviceWorker)) {
+      app.get("/sw.js", (_req, res) => {
+        res.setHeader("Cache-Control", "no-cache")
+        res.setHeader("Service-Worker-Allowed", "/")
+        res.sendFile(serviceWorker)
+      })
+    }
     app.use(express.static(webDistDir, { index: false }))
     app.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "HEAD") return next()
