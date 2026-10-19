@@ -35,9 +35,33 @@ fi
 REPLICA_PREFIX="${REPLICA_PREFIX:-chorale}"
 LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-/etc/litestream.yml}"
 
+# Transaction budget — see deploy/render-start.sh for the full explanation.
+# Backblaze B2 gives 2,500 free Class A/B/C API calls per day and a card-free
+# account cannot raise that cap, so the replica is tuned to a few hundred calls
+# a day instead of Litestream's several thousand (1s sync, 15s L0-retention
+# check, 30s L1 compaction). Override any of these with the env vars.
+LITESTREAM_SYNC_INTERVAL="${LITESTREAM_SYNC_INTERVAL:-120s}"
+LITESTREAM_L0_RETENTION="${LITESTREAM_L0_RETENTION:-1h}"
+LITESTREAM_L0_CHECK_INTERVAL="${LITESTREAM_L0_CHECK_INTERVAL:-1h}"
+LITESTREAM_L1_INTERVAL="${LITESTREAM_L1_INTERVAL:-15m}"
+LITESTREAM_L2_INTERVAL="${LITESTREAM_L2_INTERVAL:-1h}"
+LITESTREAM_L3_INTERVAL="${LITESTREAM_L3_INTERVAL:-6h}"
+LITESTREAM_SNAPSHOT_INTERVAL="${LITESTREAM_SNAPSHOT_INTERVAL:-24h}"
+
+# Shared by every replica backend below.
+LITESTREAM_BUDGET_YAML="l0-retention: ${LITESTREAM_L0_RETENTION}
+l0-retention-check-interval: ${LITESTREAM_L0_CHECK_INTERVAL}
+levels:
+  - interval: ${LITESTREAM_L1_INTERVAL}
+  - interval: ${LITESTREAM_L2_INTERVAL}
+  - interval: ${LITESTREAM_L3_INTERVAL}
+snapshot:
+  interval: ${LITESTREAM_SNAPSHOT_INTERVAL}
+"
+
 if [ "$REPLICA_TYPE" = "s3" ]; then
   cat > "$LITESTREAM_CONFIG" <<EOF
-dbs:
+${LITESTREAM_BUDGET_YAML}dbs:
   - path: ${DATABASE_FILE}
     replicas:
       - type: s3
@@ -47,17 +71,19 @@ dbs:
         access-key-id: ${S3_ACCESS_KEY_ID}
         secret-access-key: ${S3_SECRET_ACCESS_KEY}
         force-path-style: ${S3_FORCE_PATH_STYLE:-true}
+        sync-interval: ${LITESTREAM_SYNC_INTERVAL}
 $([ -n "${S3_ENDPOINT:-}" ] && echo "        endpoint: ${S3_ENDPOINT}")
 EOF
   echo "[entrypoint] Restoring database from s3://${S3_BUCKET}/${REPLICA_PREFIX} (if a replica exists)…"
 else
   cat > "$LITESTREAM_CONFIG" <<EOF
-dbs:
+${LITESTREAM_BUDGET_YAML}dbs:
   - path: ${DATABASE_FILE}
     replicas:
       - type: gcs
         bucket: ${REPLICA_BUCKET}
         path: ${REPLICA_PREFIX}
+        sync-interval: ${LITESTREAM_SYNC_INTERVAL}
 EOF
   echo "[entrypoint] Restoring database from gs://${REPLICA_BUCKET}/${REPLICA_PREFIX} (if a replica exists)…"
 fi

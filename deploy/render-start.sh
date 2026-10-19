@@ -70,7 +70,39 @@ export S3_FORCE_PATH_STYLE="${S3_FORCE_PATH_STYLE:-true}"
 LITESTREAM_CONFIG="${LITESTREAM_CONFIG:-${TMPDIR:-/tmp}/litestream.yml}"
 LITESTREAM_DB_PREFIX="${LITESTREAM_DB_PREFIX:-chorale-db}"
 
+# --- Daily transaction budget -------------------------------------------------
+# Backblaze B2's free allowance is 2,500 Class A (writes), Class B (reads) and
+# Class C (listings) calls per day, and an account without a payment method
+# cannot raise that cap. Litestream's stock settings (1s sync, a 15-second
+# L0-retention check and a 30s L1 compaction) issue up to ~12,000 *listing*
+# calls a day on their own, so a busy day silently exhausts the Class C
+# allowance: replication freezes, and the next boot restores an old database (or,
+# while the cap is still exceeded, none at all).
+#
+# The settings below keep every class in the low hundreds per day while still
+# restoring the database on every boot. Each one can be overridden from the
+# Render dashboard (`LITESTREAM_*`), but there is normally no reason to: raise
+# them only with the transaction counters in *Caps & Alerts* in front of you.
+LITESTREAM_SYNC_INTERVAL="${LITESTREAM_SYNC_INTERVAL:-120s}"        # 1s default → ≤720 uploads/day
+LITESTREAM_L0_RETENTION="${LITESTREAM_L0_RETENTION:-1h}"            # 5m default
+LITESTREAM_L0_CHECK_INTERVAL="${LITESTREAM_L0_CHECK_INTERVAL:-1h}"  # 15s default → was ~11.5k listings/day
+LITESTREAM_L1_INTERVAL="${LITESTREAM_L1_INTERVAL:-15m}"            # 30s default
+LITESTREAM_L2_INTERVAL="${LITESTREAM_L2_INTERVAL:-1h}"             # 5m default
+LITESTREAM_L3_INTERVAL="${LITESTREAM_L3_INTERVAL:-6h}"             # 1h default
+LITESTREAM_SNAPSHOT_INTERVAL="${LITESTREAM_SNAPSHOT_INTERVAL:-24h}" # 24h default
+
 {
+  # Keep the whole daily API-call total far below Backblaze B2's 2,500/class
+  # free allowance: a card-free account cannot raise the cap, and a frozen
+  # replica is the silent data loss we are guarding against.
+  echo "l0-retention: ${LITESTREAM_L0_RETENTION}"
+  echo "l0-retention-check-interval: ${LITESTREAM_L0_CHECK_INTERVAL}"
+  echo "levels:"
+  echo "  - interval: ${LITESTREAM_L1_INTERVAL}"
+  echo "  - interval: ${LITESTREAM_L2_INTERVAL}"
+  echo "  - interval: ${LITESTREAM_L3_INTERVAL}"
+  echo "snapshot:"
+  echo "  interval: ${LITESTREAM_SNAPSHOT_INTERVAL}"
   echo "dbs:"
   echo "  - path: '${DATABASE_FILE}'"
   echo "    replicas:"
@@ -81,6 +113,7 @@ LITESTREAM_DB_PREFIX="${LITESTREAM_DB_PREFIX:-chorale-db}"
   echo "        access-key-id: \${S3_ACCESS_KEY_ID}"
   echo "        secret-access-key: \${S3_SECRET_ACCESS_KEY}"
   echo "        force-path-style: \${S3_FORCE_PATH_STYLE}"
+  echo "        sync-interval: ${LITESTREAM_SYNC_INTERVAL}"
   if [ -n "${S3_ENDPOINT:-}" ]; then
     echo "        endpoint: \${S3_ENDPOINT}"
   fi

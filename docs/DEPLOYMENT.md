@@ -87,6 +87,10 @@ with upper + lower + digit.
 | `S3_SECRET_ACCESS_KEY` | B2 application key. |
 | `S3_FORCE_PATH_STYLE` | `true` (the default) — required for B2. |
 | `S3_PREFIX` | Optional, e.g. `uploads` — key prefix for uploaded media in the bucket. |
+| `LITESTREAM_SYNC_INTERVAL` | Optional, default `120s` — how often the database is pushed to the bucket (also the worst-case recovery point). See *Transaction budget*. |
+| `LITESTREAM_L0_RETENTION`, `LITESTREAM_L0_CHECK_INTERVAL` | Optional, default `1h` — how long compacted files are kept / how often retention is enforced. |
+| `LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL` | Optional, defaults `15m`/`1h`/`6h` — compaction windows (each run costs listing + upload calls). |
+| `LITESTREAM_SNAPSHOT_INTERVAL` | Optional, default `24h` — how often a full copy of the database is written. |
 | `REQUIRE_RESTORE` | Optional. `1` makes `deploy/render-start.sh` **stop** instead of starting on an unrestored (empty) database when the bucket is unreachable. The app then never serves wrong data; Render keeps the previous instance up. Default: start and warn loudly. |
 
 With `S3_*` set the server also **mirrors every upload** into the bucket under
@@ -167,11 +171,43 @@ that is the normal, expected path.
    the **key ID** and **applicationKey** (shown once).
 5. Paste the five values into Render as `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`,
    `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, then redeploy.
-6. **Check *Caps & Alerts* (Backblaze account → *Caps & Alerts*).** If a
-   **transaction cap** is set, Litestream will hit it: replication stops, and
-   worse, the restore on the next boot fails. When that happens the app still
-   runs, but on an empty database. Leave the transaction cap empty (or far above
-   Litestream's traffic) and watch the alert e-mails instead.
+6. **Know the traffic limit (Backblaze account → *Caps & Alerts*).** A B2 account
+   without a credit card gets **2,500 Class A, 2,500 Class B and 2,500 Class C API
+   calls per day** (A = uploads/writes, B = downloads/reads, C = listings),
+   counters reset at 00:00 UTC — and Backblaze only lets you *edit* those caps on
+   an account with a payment method. Once a class runs out, B2 answers
+   `Transaction cap exceeded` and replication stops; if it is still exceeded at
+   the next boot, the restore fails too (and if the counters have reset by then,
+   the restore silently returns a **stale** database). Litestream's stock
+   settings blow straight through the Class C allowance: the 15-second
+   L0-retention check alone issues ~11,500 listings a day, and the default
+   1-second sync sends thousands of uploads. `deploy/render-start.sh` therefore
+   ships a **transaction budget** (below) that keeps the daily total in the
+   hundreds. Nothing in the Backblaze console needs to change.
+
+### Transaction budget (why the Litestream config is not the default)
+
+A card-free B2 bucket is the whole point of this setup, so the replica is tuned
+to live inside the free allowance rather than to Litestream's latency defaults:
+
+| Setting | Default | Here | Why |
+| --- | --- | --- | --- |
+| `sync-interval` | `1s` | `120s` | at most 720 uploads/day instead of up to 86,400 |
+| `l0-retention-check-interval` | `15s` | `1h` | ~11,500 listing calls/day → 48 |
+| `l0-retention` | `5m` | `1h` | how long compacted L0 files are kept |
+| `levels[0..2]` (L1/L2/L3) | `30s`/`5m`/`1h` | `15m`/`1h`/`6h` | each compaction lists + uploads |
+| `snapshot.interval` | `24h` | `24h` | one full copy a day |
+
+Every value can be overridden from the environment (`LITESTREAM_SYNC_INTERVAL`,
+`LITESTREAM_L0_RETENTION`, `LITESTREAM_L0_CHECK_INTERVAL`,
+`LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL`,
+`LITESTREAM_SNAPSHOT_INTERVAL`), and the Docker entrypoint honours the same names.
+The trade-off is the recovery point: with `sync-interval: 120s`, an **abrupt**
+kill can lose up to two minutes of writes. A normal Render spin-down or deploy
+sends `SIGTERM`, on which Litestream performs a final sync, so those lose
+nothing. Lower `sync-interval` only if you are watching the Class A counter and
+have room for the extra uploads. `watch` the alert e-mails B2 sends at 75 %/100%
+of a cap.
 
 Verify durability: after a few minutes of use, click *Restart* (or redeploy) in
 Render and check that accounts and data are still there. The Litestream prefix
@@ -208,8 +244,15 @@ Chairman's bell. See *Troubleshooting* below for what to do next.
   downloaded from the bucket after five attempts, so the app is running on a
   freshly created, empty database. **Do not re-enter records yet.** In order:
   1. Fix storage access. The usual cause is a Backblaze **transaction cap**
-     (`AccessDenied: Transaction cap exceeded`) — raise or remove it under
-     *Caps & Alerts*; a wrong/rotated key or a typo in `S3_ENDPOINT` does the same.
+     (`AccessDenied: Transaction cap exceeded`) — the free allowance of 2,500
+     Class A/B/C calls per day, which a card-free account **cannot raise**. Do not
+     try to raise it: confirm the transaction budget above is in place
+     (`git log deploy/render-start.sh`; the live log line says
+     `msg="replicating to" … sync-interval=2m0s`) and that no other tool is using
+     the same bucket/key. If the cap is still in force, replication resumes by
+     itself after 00:00 UTC — but everything written since the freeze is gone, so
+     restore first (step 2). A wrong/expired key or endpoint looks the same in the
+     logs.
   2. The pre-failure data is normally still in the bucket (Litestream keeps
      previous generations). Recover it with
      `litestream restore -timestamp 2026-10-18T18:00:00Z -config <config> <file>`
@@ -256,6 +299,13 @@ Verified locally (automated tests + live checks):
 - `deploy/render-start.sh` without `S3_*` falls back to a plain start; with
   `S3_*` it downloads Litestream, writes the config (env expansion verified
   against real Backblaze B2 endpoints) and attempts the restore.
+- **The transaction budget is honoured, not silently ignored**: Litestream parses
+  unknown YAML keys without complaint, so the generated config was fed to
+  `litestream v0.5.17` directly — the startup log confirmed
+  `sync-interval=2m0s`, `starting L0 retention monitor interval=1h0m0s
+  retention=1h0m0s` and compaction monitors at `15m0s`/`1h0m0s`/`6h0m0s`
+  (snapshot level `24h0m0s`). The Docker entrypoint generates the same keys for
+  both the S3 and GCS replicas.
 - **A failed restore is loud**: the start script leaves `RESTORE-FAILED.txt`, the
   server logs a `DATA INTEGRITY WARNING`, `GET /api/health` carries
   `warning: "database_restore_failed"` (shown as a red banner to group
@@ -283,8 +333,15 @@ Not verified end-to-end:
 
 A real outage **did** occur: the first live member record was lost when a
 Backblaze transaction cap blocked the restore and the free instance came up on an
-empty database without saying so. That is exactly the failure the above prevents
-from passing unnoticed again.
+empty database without saying so. Two things were wrong. The replica had burned
+through the free Class C allowance because Litestream's defaults (a 15-second L0
+retention check and a 30-second L1 compaction, each listing the bucket) spend
+~17,000 listing calls a day against a 2,500/day allowance, and a card-free
+account cannot raise that cap. And the failure was silent, because a failed
+restore simply produced a fresh database. Both are now fixed: the transaction
+budget above keeps the daily totals in the hundreds, and a failed (or
+unavailable) restore is loud — `RESTORE-FAILED.txt`, `DATA INTEGRITY WARNING`,
+`warning` on `/api/health`, red banner, audit entry, Chairman notification.
 
 ## Optional: Docker (self-hosting)
 

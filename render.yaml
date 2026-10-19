@@ -37,6 +37,27 @@ services:
       #   JUNIOR_ADMIN_PASSWORD   MEMBERS_ADMIN_PASSWORD
       # --- Durable storage (Backblaze B2 bucket; see docs/DEPLOYMENT.md) ----
       #   S3_BUCKET  S3_ENDPOINT  S3_REGION  S3_ACCESS_KEY_ID  S3_SECRET_ACCESS_KEY
+      #
+      # Transaction budget: a card-free B2 account gets 2,500 Class A/B/C API
+      # calls per day and cannot raise that cap, so deploy/render-start.sh tunes
+      # Litestream away from its defaults (1s sync, 15s L0-retention check, 30s
+      # L1 compaction — thousands of listings a day). The defaults below keep
+      # the daily totals in the hundreds; override only with the Caps & Alerts
+      # counters in front of you. Uncomment and edit any of:
+      # - key: LITESTREAM_SYNC_INTERVAL         # default 120s
+      #   value: "120s"
+      # - key: LITESTREAM_L0_RETENTION          # default 1h
+      #   value: "1h"
+      # - key: LITESTREAM_L0_CHECK_INTERVAL     # default 1h
+      #   value: "1h"
+      # - key: LITESTREAM_L1_INTERVAL           # default 15m
+      #   value: "15m"
+      # - key: LITESTREAM_L2_INTERVAL           # default 1h
+      #   value: "1h"
+      # - key: LITESTREAM_L3_INTERVAL           # default 6h
+      #   value: "6h"
+      # - key: LITESTREAM_SNAPSHOT_INTERVAL     # default 24h
+      #   value: "24h"
       - key: APP_SECRET
         sync: false
       - key: CHAIRMAN_PASSWORD
