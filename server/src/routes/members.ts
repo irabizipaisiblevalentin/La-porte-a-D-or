@@ -11,7 +11,7 @@ import { badRequest, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { recordAudit } from "../lib/audit.js"
 import { imageUpload } from "../middleware/upload.js"
-import { saveUpload } from "../services/uploads.js"
+import { deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
 import { nowIso } from "../lib/time.js"
 
 export const membersRouter: Router = Router()
@@ -230,6 +230,54 @@ membersRouter.patch("/:id", requireAuth, requirePermission("member.write"), (req
       includeCredentials: canActOnMember(req.auth!, "member.write", member),
     }),
   })
+})
+
+/**
+ * Removes a member record for good — the Chairman only (`member.delete`), and
+ * only once the record has been withdrawn. An active member must be withdrawn
+ * first, so this can never be a way to delete someone by accident. The
+ * application the member came from is kept (its member link is cleared), and the
+ * deletion itself is written to the immutable audit trail.
+ */
+membersRouter.delete("/:id", requireAuth, requirePermission("member.delete"), (req, res) => {
+  const member = getMember(String(req.params.id))
+  if (!member) throw notFound("That member does not exist.")
+  if (member.status !== "withdrawn") {
+    throw badRequest(`${member.full_name} is ${member.status}. Withdraw the member first, then remove the record.`)
+  }
+
+  // A member account must never take an administrator's account with it.
+  const adminRole = member.user_id
+    ? one<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM user_roles
+          WHERE user_id = ? AND role_id IN ('role_chairman','role_senior_leader','role_junior_admin','role_members_admin')`,
+        member.user_id,
+      )?.c ?? 0
+    : 0
+  if (adminRole > 0) throw badRequest("That record is linked to an administrator account; remove the administrator role first.")
+
+  const photos = all<FileRow>(
+    "SELECT * FROM file_uploads WHERE entity_type = 'member_photo' AND entity_id = ?",
+    member.id,
+  )
+
+  transaction(() => {
+    for (const photo of photos) deleteFile(photo)
+    if (member.user_id) run("DELETE FROM users WHERE id = ?", member.user_id)
+    run("DELETE FROM members WHERE id = ?", member.id)
+  })
+
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "member.delete", entityType: "member", entityId: member.id,
+    summary: `Member ${member.member_no} (${member.full_name}) removed from the register`,
+    detail: {
+      memberNo: member.member_no, fullName: member.full_name, status: member.status,
+      accountRemoved: Boolean(member.user_id), photosRemoved: photos.length,
+    },
+    ip: req.ip,
+  })
+  res.json({ ok: true, memberNo: member.member_no })
 })
 
 /**

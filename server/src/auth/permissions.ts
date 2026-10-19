@@ -20,6 +20,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "member.read", name: "View member records", description: "Read member profiles in the permitted group.", scopes: GROUP_SCOPED },
   { key: "member.write", name: "Manage member records", description: "Create and edit member profiles in the permitted group.", scopes: GROUP_SCOPED },
   { key: "member.sensitive.read", name: "View sensitive minor records", description: "Read guardian, emergency contact and detailed address data for juniors.", scopes: ["global", "junior"] },
+  { key: "member.delete", name: "Remove member records", description: "Permanently remove a withdrawn member record and its sign-in from the register. Kept in the audit trail; the application history stays.", scopes: ["global"] },
 
   { key: "music.read", name: "View music library", description: "Browse the song catalogue and video metadata.", scopes: ["global"] },
   { key: "music.write", name: "Manage song catalogue", description: "Create and edit songs, videos, categories and assignments.", scopes: ["global"] },

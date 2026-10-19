@@ -301,6 +301,8 @@ support-member records, even by guessing an id (the API returns 403/404).
 | `support_member` | own + shared read | Support member's own records and shared read. |
 
 Settings, integrations, brand uploads and the audit log are **Chairman only** (organisation-wide).
+So is **removing a withdrawn member record** (`member.delete`), which erases the record and the
+sign-in account created at approval while keeping the application and the audit trail.
 
 Any signed-in member also has `messages.send`, which powers the **“Message the Chairman”** button
 (the floating button on every app screen, and the **Messages** page). The Chairman holds
@@ -388,7 +390,7 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 57 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 62 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
   role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
   `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
@@ -399,11 +401,12 @@ field mapping.
   on `/api/health`, one audit entry + one Chairman notification, no nagging on a healthy boot), and
   upload durability (every upload mirrored into the bucket, served from the bucket — and re-cached —
   after the disk is wiped, private files only after the authorization check, deletion propagated,
-  no bucket call for unknown paths and traversal refused).
+  no bucket call for unknown paths and traversal refused), and removing a member record (Chairman
+  only, withdrawn records only, account and photograph erased, application and audit trail kept).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.
 - `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
   into `dist/` so `npm start` (compiled output) boots.
-- Server boots, migrates, seeds (37 permissions, 6 roles, 3 groups, 4 voice sections, 8 song
+- Server boots, migrates, seeds (38 permissions, 6 roles, 3 groups, 4 voice sections, 8 song
   categories, 5 learning stages, 10 discipline categories).
 - First-admin setup token issuance and `POST /api/setup` (creates the first **Chairman**).
 - Login, session cookie, `GET /api/auth/me`, logout.

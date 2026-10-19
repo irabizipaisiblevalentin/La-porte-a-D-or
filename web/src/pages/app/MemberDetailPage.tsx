@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   ArrowLeft,
   Eye,
@@ -11,6 +11,7 @@ import {
   Phone,
   Send,
   ShieldAlert,
+  Trash2,
   Upload,
   User,
 } from "lucide-react"
@@ -217,6 +218,7 @@ function formatDateTime(value: string | null | undefined): string {
 
 export function MemberDetailPage() {
   const { id = "" } = useParams()
+  const navigate = useNavigate()
   const toast = useToast()
   const { can } = useAuth()
 
@@ -224,6 +226,7 @@ export function MemberDetailPage() {
   const { data, loading, error, reload } = useQuery<{ member: FullMember }>(`/members/${id}`)
 
   const [editing, setEditing] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const [form, setForm] = useState<EditForm>(EMPTY_FORM)
   const [fields, setFields] = useState<Record<string, string>>({})
 
@@ -236,6 +239,7 @@ export function MemberDetailPage() {
   const sendCredentials = useMutation(() =>
     api.post<{ delivery: CredentialDelivery }>(`/members/${id}/send-credentials`),
   )
+  const remove = useMutation(() => api.del<{ ok: boolean; memberNo: string }>(`/members/${id}`))
 
   const [revealed, setRevealed] = useState(false)
 
@@ -256,6 +260,11 @@ export function MemberDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendCredentials.error])
 
+  useEffect(() => {
+    if (remove.error) toast.error(remove.error.message)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remove.error])
+
   // A password is revealed per visit and never for the next member.
   useEffect(() => {
     setRevealed(false)
@@ -267,6 +276,9 @@ export function MemberDetailPage() {
   const scope = groupScope(member?.group_key)
   const canWrite = scope ? can("member.write", scope) : can("member.write")
   const canSensitive = can("member.sensitive.read", "junior")
+  // Removing a record is deliberately rare: the Chairman only, and only once the
+  // member has been withdrawn (the server enforces both as well).
+  const canRemove = can("member.delete") && member?.status === "withdrawn"
 
   function startEdit() {
     if (!detail) return
@@ -388,6 +400,15 @@ export function MemberDetailPage() {
     } else {
       toast.error(`The email could not be sent${delivery.error ? `: ${delivery.error}` : "."}`)
     }
+  }
+
+  /** Erases a withdrawn record (its account and photograph go with it). */
+  async function onRemove() {
+    setConfirmRemove(false)
+    const result = await remove.run()
+    if (!result) return
+    toast.success(`${result.memberNo} was removed.`)
+    navigate("/app/members")
   }
 
   const breadcrumbs = [
@@ -658,6 +679,46 @@ export function MemberDetailPage() {
           </CardBody>
         </Card>
       ) : null}
+
+      {canRemove ? (
+        <Card>
+          <CardHeader title="Remove this record" />
+          <CardBody className="flex flex-col gap-3">
+            <p className="text-sm">
+              {member.full_name} has been withdrawn. Removing the record erases the member, the sign-in account
+              created when the application was approved and the photograph — the application itself and the audit
+              trail are kept. This cannot be undone.
+            </p>
+            <div>
+              <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => setConfirmRemove(true)}>
+                Remove record
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      <Modal
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        title={`Remove ${member.full_name}?`}
+        description={`${member.member_no} will be erased, together with the sign-in details created at approval. This cannot be undone.`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmRemove(false)} disabled={remove.saving}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={<Trash2 size={15} />} loading={remove.saving} onClick={onRemove}>
+              Remove permanently
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          Removing a record is recorded in the audit trail. If {member.full_name} is really coming back, leave the
+          record in place instead — a withdrawn record can be reactivated.
+        </p>
+      </Modal>
 
       <Modal
         open={editing}

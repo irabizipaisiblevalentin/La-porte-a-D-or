@@ -55,6 +55,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `PATCH /members/me` `[perm: member.write/own]` `{ contact?, senior?, junior?, support? }`
 - `GET /members/:id` `[perm: member.read/{group}|own]` — includes `member.sign_in_password` only when the caller may write that member (their group's administrator, or the member themselves)
 - `PATCH /members/:id` `[perm: member.write/{group}]`
+- `DELETE /members/:id` `[perm: member.delete/global]` — Chairman only. Removes a **withdrawn** member, the account approval created and its photograph. The application is kept (its member link is cleared) and the removal is audited. An active member is refused: withdraw first.
 - `POST /members/:id/send-credentials` `[perm: member.write/{group}|own]` — re-emails the member their sign-in name and password; returns `{ delivery: { sent, to, reason } }` where `reason` is `sent`, `no_email`, `not_configured` or `send_failed`
 - `POST /members/:id/photo` `[perm: member.write/{group}|own]` multipart `file`
 
