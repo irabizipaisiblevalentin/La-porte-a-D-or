@@ -1,4 +1,3 @@
-import fs from "node:fs"
 import { Router } from "express"
 import { z } from "zod"
 import { canActOnMember } from "../auth/access.js"
@@ -8,7 +7,7 @@ import { badRequest, forbidden, notFound } from "../lib/errors.js"
 import { queryString } from "../lib/http.js"
 import { imageUpload } from "../middleware/upload.js"
 import { requireAuth, requirePermission } from "../middleware/auth.js"
-import { absolutePathFor, deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
+import { deleteFile, openStoredFile, saveUpload, type FileRow } from "../services/uploads.js"
 
 export const uploadsRouter: Router = Router()
 
@@ -95,7 +94,7 @@ uploadsRouter.delete("/:id", requireAuth, (req, res) => {
 /** Streams a private file after an explicit authorization check on its owning record. */
 export const filesRouter: Router = Router()
 
-filesRouter.get("/:id", requireAuth, (req, res) => {
+filesRouter.get("/:id", requireAuth, async (req, res) => {
   const file = one<FileRow>("SELECT * FROM file_uploads WHERE id = ?", String(req.params.id))
   if (!file) throw notFound("That file does not exist.")
   if (file.bucket === "public") {
@@ -103,12 +102,15 @@ filesRouter.get("/:id", requireAuth, (req, res) => {
     return
   }
   if (!authorizeFileAccess(req, file)) throw forbidden()
-  const absolute = absolutePathFor(file)
-  if (!fs.existsSync(absolute)) throw notFound("That file is no longer available.")
-  res.setHeader("Content-Type", file.mime_type ?? "application/octet-stream")
+  // Served from local disk when it is still there, otherwise pulled back out of
+  // the object bucket (and cached locally for the next request).
+  const opened = await openStoredFile(file)
+  if (!opened) throw notFound("That file is no longer available.")
+  res.setHeader("Content-Type", file.mime_type ?? opened.mimeType ?? "application/octet-stream")
   res.setHeader("X-Content-Type-Options", "nosniff")
   res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(file.original_name)}"`)
-  fs.createReadStream(absolute).pipe(res)
+  if (opened.size !== null) res.setHeader("Content-Length", String(opened.size))
+  opened.stream.pipe(res)
 })
 
 function authorizeFileAccess(req: { auth?: import("../auth/access.js").AuthUser }, file: FileRow): boolean {

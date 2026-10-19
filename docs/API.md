@@ -191,5 +191,8 @@ All `[perm: reports.read/{scope}]`; every number comes from the database.
 - `POST /uploads/brand/logo` `[perm: settings.write]` multipart `file`
 - `POST /uploads/gallery` `[perm: settings.write]` multipart `file`
 - `GET /uploads` `[perm: settings.read]` query `entityType`
-- `DELETE /uploads/:id` `[perm: settings.write]`
+- `DELETE /uploads/:id` `[perm: settings.write]` — deletes the local file **and** the mirrored object
 - `GET /files/:id` `[auth]` -> streams a private file after an authorization check
+- `GET /media/...` — public uploads. Served from local disk; when the disk has been wiped
+  (Render restart / idle spin-down) the file is streamed back out of the object bucket and
+  re-cached. Paths with no `file_uploads` record are never fetched, and `..` is refused.

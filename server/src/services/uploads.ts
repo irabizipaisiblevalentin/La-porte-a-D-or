@@ -4,6 +4,7 @@ import { privateStorageDir, publicStorageDir } from "../config.js"
 import { run } from "../db/index.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
+import { deleteObject, getObjectStream, putObject } from "./object-storage.js"
 
 export type Bucket = "public" | "private"
 
@@ -69,6 +70,13 @@ export function saveUpload(input: SaveUploadInput): SavedUpload {
     input.entityType, input.entityId, input.uploadedBy, nowIso(),
   )
 
+  // Mirror into the bucket so the file outlives the local disk (Render wipes it
+  // on every restart). Best effort: the upload has already been accepted, and a
+  // storage outage must never fail the request that carries it.
+  void putObject(storedPath, input.data, input.mimeType).catch((error) => {
+    console.error(`[storage] could not mirror ${storedPath} to the bucket:`, message(error))
+  })
+
   return {
     id: fileId,
     bucket: input.bucket,
@@ -98,8 +106,74 @@ export function absolutePathFor(file: Pick<FileRow, "bucket" | "path">): string 
   return path.join(root, ...relative.split("/"))
 }
 
+export interface OpenedFile {
+  stream: NodeJS.ReadableStream
+  mimeType: string | null
+  size: number | null
+}
+
+/**
+ * Opens a stored file for reading: local disk first, otherwise the bucket — and
+ * whatever it downloads is written back to disk, so the next request (and every
+ * request after the same restart) is served locally again.
+ *
+ * Returns `null` when the file exists nowhere. The bucket lookup is bounded by
+ * `timeoutMs` so an unreachable endpoint cannot pin a request open.
+ */
+export async function openStoredFile(
+  file: Pick<FileRow, "bucket" | "path" | "mime_type">,
+  timeoutMs = 20_000,
+): Promise<OpenedFile | null> {
+  const absolute = absolutePathFor(file)
+  if (fs.existsSync(absolute)) {
+    return { stream: fs.createReadStream(absolute), mimeType: file.mime_type, size: null }
+  }
+  if (timeoutMs <= 0) return openRemote(absolute, file)
+
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      openRemote(absolute, file),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function openRemote(
+  absolute: string,
+  file: Pick<FileRow, "path" | "mime_type">,
+): Promise<OpenedFile | null> {
+  const remote = await getObjectStream(file.path)
+  if (!remote) return null
+  cacheToDisk(absolute, remote.stream)
+  return { stream: remote.stream, mimeType: file.mime_type ?? remote.contentType, size: remote.contentLength }
+}
+
+/** Copies a stream to disk while it is being sent to the client. Best effort. */
+function cacheToDisk(absolute: string, source: NodeJS.ReadableStream): void {
+  try {
+    fs.mkdirSync(path.dirname(absolute), { recursive: true })
+    const out = fs.createWriteStream(absolute, { mode: 0o640 })
+    source.on("data", (chunk) => out.write(chunk as Buffer))
+    source.on("end", () => out.end())
+    source.on("error", () => out.destroy())
+    out.on("error", () => {})
+  } catch {
+    /* the cache is an optimisation, never a requirement */
+  }
+}
+
 export function deleteFile(file: Pick<FileRow, "id" | "bucket" | "path">): void {
   const absolute = absolutePathFor(file)
   fs.rmSync(absolute, { force: true })
+  void deleteObject(file.path).catch((error) => {
+    console.error(`[storage] could not delete ${file.path} from the bucket:`, message(error))
+  })
   run("DELETE FROM file_uploads WHERE id = ?", file.id)
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

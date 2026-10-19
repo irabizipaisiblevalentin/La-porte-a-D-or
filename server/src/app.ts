@@ -16,6 +16,7 @@ import { disciplineRouter } from "./routes/discipline.js"
 import { discoveryRouter } from "./routes/discovery.js"
 import { eventsRouter } from "./routes/events.js"
 import { goalsRouter } from "./routes/goals.js"
+import { serveMissingPublicMedia } from "./routes/media.js"
 import { membersRouter } from "./routes/members.js"
 import { messagesRouter } from "./routes/messages.js"
 import { notificationsRouter } from "./routes/notifications.js"
@@ -87,8 +88,11 @@ export function createApp(): Express {
   app.use("/api/files", filesRouter)
 
   // Public media bucket (choir logo, public photographs). Private files are served through
-  // an authorization-checked route, never from a static directory.
+  // an authorization-checked route, never from a static directory. The fallback pulls a
+  // missing file back out of the object bucket, which is what makes uploads survive a
+  // wipe of the local disk.
   app.use("/media", express.static(publicStorageDir, { index: false, maxAge: "1h", fallthrough: true }))
+  app.use("/media", serveMissingPublicMedia)
 
   app.use("/api", notFoundHandler)
 

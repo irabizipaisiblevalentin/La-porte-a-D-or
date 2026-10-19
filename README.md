@@ -213,7 +213,10 @@ The production deployment runs on **Render** (free plan, no credit card) at
 
 Because Render's free plan has an ephemeral disk, the SQLite database is continuously replicated to
 a **Backblaze B2** bucket with **Litestream** (`deploy/render-start.sh`); on boot the database is
-restored from the bucket before the app starts. Set in the Render dashboard:
+restored from the bucket before the app starts. Uploaded media is durable the same way: every upload
+is mirrored into that bucket and pulled back (then re-cached locally) the first time it is requested
+after a wipe, so member photographs, song audio and application documents survive restarts too.
+Set in the Render dashboard:
 
 ```
 Build Command    npm ci --include=dev && npm run build
@@ -269,7 +272,7 @@ All are optional in development; the ones marked **prod** should be set in produ
 | `MAX_AUDIO_BYTES` | `83886080` | Upload limit for audio. |
 | `MAX_DOCUMENT_BYTES` | `16777216` | Upload limit for documents. |
 | `ALLOW_DEFAULT_ACCOUNTS` | unset | `1` → on boot, create any default administrator account that doesn't exist yet (existing accounts are never modified). **prod** |
-| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`, `S3_PREFIX` | unset | S3-compatible storage (Backblaze B2). Enables upload mirroring and — via `deploy/render-start.sh` — Litestream database replication. **prod** |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`, `S3_PREFIX` | unset | S3-compatible storage (Backblaze B2). Enables Litestream database replication **and** upload durability: every upload is mirrored to the bucket and read back (then re-cached) when the local disk has been wiped. **prod** |
 | `LITESTREAM_SYNC_INTERVAL` | `120s` | How often the database is pushed to the bucket (worst-case recovery point). Tuned for B2's 2,500/day free API-call allowance — see [*Transaction budget*](docs/DEPLOYMENT.md#transaction-budget-why-the-litestream-config-is-not-the-default). |
 | `LITESTREAM_L0_RETENTION`, `LITESTREAM_L0_CHECK_INTERVAL` | `1h`, `1h` | How long compacted files are kept and how often retention is enforced (Litestream defaults: `5m`, `15s` — the latter alone costs ~11,500 listing calls/day). |
 | `LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL` | `15m`, `1h`, `6h` | Compaction windows (Litestream defaults: `30s`, `5m`, `1h`). |
@@ -385,15 +388,18 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 50 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 57 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
   role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
   `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
   every granted permission exists at an allowed scope), the administrator-account definitions
   (strong passwords, known roles, exactly the four admin roles, profile photos when set, env overrides),
   approval-generated credentials (readable by the group's own administrator, emailed to the member,
-  never sent to a placeholder address), and the failed-restore alarm (marker parsed at boot, reported
-  on `/api/health`, one audit entry + one Chairman notification, no nagging on a healthy boot).
+  never sent to a placeholder address), the failed-restore alarm (marker parsed at boot, reported
+  on `/api/health`, one audit entry + one Chairman notification, no nagging on a healthy boot), and
+  upload durability (every upload mirrored into the bucket, served from the bucket — and re-cached —
+  after the disk is wiped, private files only after the authorization check, deletion propagated,
+  no bucket call for unknown paths and traversal refused).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.
 - `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
   into `dist/` so `npm start` (compiled output) boots.
@@ -475,8 +481,11 @@ field mapping.
   web-push).
 - **Browser/UI click-through and automated browser tests** — the UI compiles and builds and its API
   contracts are exercised, but no Playwright/end-to-end browser suite was run here.
-- **Multipart file uploads** (member photos, song audio, application documents, brand/gallery) — the
-  routes and size/type validation exist; uploads were not exercised end-to-end in these tests.
+- **Multipart uploads against the real bucket** — member photos, song audio, application documents
+  and brand/gallery uploads are now exercised end to end (mirror on upload, serve-from-bucket and
+  re-cache after a simulated disk wipe, private-file authorization, deletion propagation, traversal
+  refusal) against a stand-in S3 endpoint in `media-storage.test.ts`. The identical flow against
+  Backblaze itself, with real multipart file bodies, has not been run from this environment.
 - Attendance rate arithmetic beyond the default policy values.
 - **The Render deployment** — the live service was verified to serve the built SPA, `/api/health`
   and a real administrator sign-in over https. `deploy/render-start.sh` falls back correctly without

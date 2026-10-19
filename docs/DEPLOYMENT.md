@@ -12,14 +12,17 @@ Browser ──▶ https://la-porte-ador.onrender.com   (Render proxy, TLS)
         Express server + built React SPA
                  │
                  ├── SQLite   server/data/chorale.db ──▶ Litestream ──▶ Backblaze B2 bucket (S3 API)
-                 └── uploads  server/data/storage    ──▶ mirrored to the same bucket (best effort)
+                 └── uploads  server/data/storage    ──▶ mirrored to the same bucket
+                                                          (read back when the disk is wiped)
 ```
 
 Render's free plan has an **ephemeral disk**: the SQLite file and all uploads
 are wiped on every redeploy and on Render's periodic instance restarts. That is
 why the database is continuously replicated to a **Backblaze B2** bucket (10 GB
 free, sign-up without a credit card) with **Litestream** — on boot the database
-is restored from the bucket before the app starts (`deploy/render-start.sh`).
+is restored from the bucket before the app starts (`deploy/render-start.sh`) —
+and why **every upload is mirrored into the same bucket** and pulled back the
+first time it is requested (see *Uploads* below).
 
 ## Service settings (Render dashboard)
 
@@ -94,9 +97,9 @@ with upper + lower + digit.
 | `REQUIRE_RESTORE` | Optional. `1` makes `deploy/render-start.sh` **stop** instead of starting on an unrestored (empty) database when the bucket is unreachable. The app then never serves wrong data; Render keeps the previous instance up. Default: start and warn loudly. |
 
 With `S3_*` set the server also **mirrors every upload** into the bucket under
-`S3_PREFIX`. Note the known limitation below: after a redeploy the mirrored
-files are not served again automatically — the **database** is what is durably
-protected.
+`S3_PREFIX`, and reads it back when the local copy is gone — which is the normal
+case after a redeploy or an idle spin-down. The database and the media therefore
+survive together; see *Uploads survive the disk* below.
 
 ### Other
 
@@ -277,13 +280,29 @@ Chairman's bell. See *Troubleshooting* below for what to do next.
 - **429 responses** — per-IP rate limiting is active and generous; `trust proxy`
   is enabled so client IPs are correct behind Render's proxy.
 
+## Uploads survive the disk
+
+Every upload is written to `server/data/storage/...` **and** mirrored into the
+bucket under `S3_PREFIX`. The mirror is best effort: a bucket outage never fails
+the upload that carries the file.
+
+When a file is requested:
+
+1. `express.static` serves it from local disk — the common case, no bucket call;
+2. only when it is missing (the disk was wiped) does the server look the path up
+   in `file_uploads`, stream the object back out of the bucket, and write it to
+   disk again as it streams, so later requests are local again;
+3. private files (`/api/files/:id`, e.g. member photographs and song audio) take
+   the same route, but only **after** the normal authorization check.
+
+Two deliberate limits: a path with no `file_uploads` record is never turned into
+a bucket request (an unknown URL cannot burn transactions), and traversal out of
+`/media` (`..`, encoded or not) is refused. Deleting a file deletes the object
+too, and reads are Class B transactions — cached to disk after the first request,
+so they count against the free allowance at most once per instance lifetime.
+
 ## Known limitations
 
-- **Mirrored uploads are not served after a redeploy.** Uploads are written to
-  the bucket as a mirror, but the server currently reads media from local disk
-  only. After a redeploy, previously uploaded photos/audio are no longer served
-  (re-upload them). The database — members, applications, songs, audit trail —
-  is fully durable.
 - Render free instances **spin down** after inactivity; the first request after
   an idle period takes ~30–60 seconds.
 - Exactly one instance is expected: a local SQLite file must never be shared by
