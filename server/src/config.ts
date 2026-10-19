@@ -69,6 +69,71 @@ export const config = {
 }
 
 /**
+ * Why this boot could not recover the database, or null when all is well.
+ *
+ * `deploy/render-start.sh` writes `RESTORE-FAILED.txt` into the data directory
+ * (and exports CHORALE_RESTORE_FAILED) when the local SQLite file could not be
+ * restored from the bucket, when the Litestream binary is missing, or when no
+ * durable storage is configured at all. Without this signal the app happily
+ * serves an empty database after an ephemeral disk is wiped — which is how real
+ * member records disappeared once already. The app now says so out loud.
+ */
+export type RestoreAlertReason = "restore_failed" | "replication_disabled" | "litestream_unavailable"
+
+export interface RestoreAlert {
+  reason: RestoreAlertReason
+  /** When the failing boot happened (null when only the env flag was set). */
+  at: string | null
+  /** Human-readable explanation, shown to administrators. */
+  detail: string | null
+}
+
+const RESTORE_MARKER_FILE = path.join(dataDir, "RESTORE-FAILED.txt")
+
+function normalizeRestoreReason(value: string | undefined): RestoreAlert["reason"] {
+  if (value === "replication_disabled" || value === "litestream_unavailable") return value
+  return "restore_failed"
+}
+
+/** Parses the marker written by deploy/render-start.sh. Null when it is absent. */
+export function parseRestoreMarker(markerFile: string): RestoreAlert | null {
+  try {
+    if (!fs.existsSync(markerFile)) return null
+    const fields = new Map<string, string>()
+    for (const line of fs.readFileSync(markerFile, "utf8").split(/\r?\n/)) {
+      const eq = line.indexOf("=")
+      if (eq > 0) fields.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim())
+    }
+    return {
+      reason: normalizeRestoreReason(fields.get("reason")),
+      at: fields.get("at") ?? null,
+      detail: fields.get("detail") ?? null,
+    }
+  } catch {
+    return { reason: "restore_failed", at: null, detail: null }
+  }
+}
+
+function readRestoreAlert(): RestoreAlert | null {
+  // Preferred: the marker written by deploy/render-start.sh on the boot that failed.
+  const fromMarker = parseRestoreMarker(RESTORE_MARKER_FILE)
+  if (fromMarker) return fromMarker
+  // Fallback: the start script exports these directly, so the warning survives
+  // even when the disk was not writable.
+  if (process.env.CHORALE_RESTORE_FAILED === "1" || process.env.CHORALE_RESTORE_FAILED === "true") {
+    return {
+      reason: "restore_failed",
+      at: null,
+      detail: process.env.CHORALE_RESTORE_DETAIL?.trim() || null,
+    }
+  }
+  return null
+}
+
+/** Null when the database came up normally; set when a restore failed or is impossible. */
+export const restoreAlert: RestoreAlert | null = readRestoreAlert()
+
+/**
  * Optional S3-compatible object storage (Backblaze B2, Cloudflare R2, AWS S3…).
  *
  * When enabled, uploaded files are written to the bucket in addition to local

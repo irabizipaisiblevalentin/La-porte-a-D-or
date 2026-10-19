@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import cookieParser from "cookie-parser"
 import express, { type Express, type Request } from "express"
-import { config, publicStorageDir, webDistDir } from "./config.js"
+import { config, publicStorageDir, restoreAlert, webDistDir } from "./config.js"
 import { attachAuth } from "./middleware/auth.js"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js"
 import { generalRateLimit } from "./middleware/rate-limit.js"
@@ -51,7 +51,14 @@ export function createApp(): Express {
   app.use(attachAuth)
 
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", app: config.appName, time: new Date().toISOString() })
+    // `warning` is a machine-readable flag; `restoreAlert` carries the detail.
+    // Both are absent on a healthy boot, so existing callers are unaffected.
+    res.json({
+      status: "ok",
+      app: config.appName,
+      time: new Date().toISOString(),
+      ...(restoreAlert ? { warning: "database_restore_failed", restoreAlert } : {}),
+    })
   })
 
   app.use("/api/setup", setupRouter)

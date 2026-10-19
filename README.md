@@ -233,6 +233,12 @@ Full instructions — including the Backblaze B2 setup, the Google Form webhook 
 troubleshooting table — are in **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**. A `render.yaml`
 blueprint documenting the same settings is included.
 
+A restore can fail (an expired key, or a Backblaze *Caps & Alerts* transaction cap, are the usual
+causes). When it does, the app no longer pretends everything is fine: it logs a `DATA INTEGRITY
+WARNING`, reports `warning` on `/api/health`, shows a red banner to group administrators and the
+Chairman, and records an audit entry plus a notification. `REQUIRE_RESTORE=1` makes the boot fail
+instead. See *Troubleshooting* in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the recovery steps.
+
 ---
 
 ## Environment variables
@@ -251,6 +257,7 @@ All are optional in development; the ones marked **prod** should be set in produ
 | `SESSION_COOKIE_NAME` | `cldo_session` | Session cookie name. |
 | `SESSION_COOKIE_SECURE` | `false` | Set `true` behind HTTPS. **prod** |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime (rolling). |
+| `REQUIRE_RESTORE` | `0` | Read by `deploy/render-start.sh`: when `1`, the app **refuses to start** if the database could not be restored, instead of running on an empty one. |
 | `MAX_IMAGE_BYTES` | `8388608` | Upload limit for images. |
 | `MAX_AUDIO_BYTES` | `83886080` | Upload limit for audio. |
 | `MAX_DOCUMENT_BYTES` | `16777216` | Upload limit for documents. |
@@ -367,12 +374,15 @@ field mapping.
 
 **Verified green on this machine** (`node`/`tsx` against a running server and dev database):
 
-- `npm test` — 30 unit tests pass: password hashing/verification and strength rules, opaque token
+- `npm test` — 50 unit tests pass: password hashing/verification and strength rules, opaque token
   hashing, constant-time comparison, AES-256-GCM secret encryption (incl. tamper rejection),
   role/permission invariants (exactly seven roles, exactly four admin roles, `senior_leader` /
   `junior_admin` / `members_admin` cannot reach settings or audit, singers limited to own records,
-  every granted permission exists at an allowed scope), and the administrator-account definitions
-  (strong passwords, known roles, exactly the four admin roles, profile photos when set, env overrides).
+  every granted permission exists at an allowed scope), the administrator-account definitions
+  (strong passwords, known roles, exactly the four admin roles, profile photos when set, env overrides),
+  approval-generated credentials (readable by the group's own administrator, emailed to the member,
+  never sent to a placeholder address), and the failed-restore alarm (marker parsed at boot, reported
+  on `/api/health`, one audit entry + one Chairman notification, no nagging on a healthy boot).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.
 - `npm run build` — Vite production build succeeds (28 pages); the server build copies `schema.sql`
   into `dist/` so `npm start` (compiled output) boots.
@@ -464,6 +474,11 @@ field mapping.
   test database, the local file was deleted, and `litestream restore` returned all 501 rows intact
   (test objects were removed afterwards). The optional Docker image (`Dockerfile`,
   `deploy/entrypoint.sh`) was never built — no `docker` CLI in this environment.
+- **A real durability failure is no longer silent** (see *Security notes* below and
+  `docs/DEPLOYMENT.md`, Troubleshooting). A Backblaze transaction cap once blocked the restore, the
+  free instance came up on an empty database and simply looked healthy. The marker → `/api/health`
+  → red banner → audit entry → Chairman notification chain is covered by
+  `server/test/unit/restore-alert.test.ts`; the banner as painted in a browser was not opened here.
 
 ---
 
@@ -495,7 +510,7 @@ field mapping.
 choir/
 ├─ Dockerfile             # OPTIONAL container image (web + server + Litestream; not used by Render)
 ├─ render.yaml            # Render blueprint reference (service settings + env vars)
-├─ deploy/                # render-start.sh (Render + Litestream→B2), entrypoint.sh (Docker), hosting/
+├─ deploy/                # render-start.sh (Render + Litestream→B2), entrypoint.sh (Docker), restore-alert.sh (shared "restore failed" alarm), hosting/
 ├─ docs/
 │  ├─ API.md              # canonical endpoint contract
 │  ├─ CONVENTIONS.md      # stack, imports, auth, audit, UI conventions

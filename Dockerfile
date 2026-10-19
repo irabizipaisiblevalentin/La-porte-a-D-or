@@ -52,8 +52,8 @@ RUN tar -xzf /tmp/litestream.tar.gz -C /usr/local/bin litestream && rm -f /tmp/l
 
 WORKDIR /app
 COPY --from=build /app /app
-COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY deploy/entrypoint.sh deploy/restore-alert.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/restore-alert.sh
 
 # Ephemeral by default; uploaded media is mirrored to the S3/GCS bucket when
 # S3_* variables are set (see docs/DEPLOYMENT.md). The database is protected

@@ -25,6 +25,12 @@ services:
       # Cookies are only sent over https (Render terminates TLS in front).
       - key: SESSION_COOKIE_SECURE
         value: "true"
+      # Optional. With "1", deploy/render-start.sh REFUSES to start when the
+      # database could not be restored from the bucket (the free plan's disk is
+      # wiped on every restart), instead of quietly serving an empty database.
+      # Leave at "0"/unset to start anyway, loudly flagged on /api/health.
+      # - key: REQUIRE_RESTORE
+      #   value: "1"
       # --- Secrets: enter these values in the Render dashboard, not here -----
       #   APP_SECRET              (stable random string; never rotate casually)
       #   CHAIRMAN_PASSWORD       SENIOR_ADMIN_PASSWORD

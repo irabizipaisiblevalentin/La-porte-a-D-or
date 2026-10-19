@@ -21,6 +21,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /auth/invitation/:token` `{ password }` -> `{ user }`
 
 ## Public (no auth)
+- `GET /health` -> `{ status, app, time }`. When the last boot could not restore the database from durable storage, `warning: "database_restore_failed"` and `restoreAlert: { reason: "restore_failed" | "replication_disabled" | "litestream_unavailable", at, detail }` are added; the web app shows a red banner for group administrators and the Chairman (see `docs/DEPLOYMENT.md`, Troubleshooting).
 - `GET /public/landing` -> `{ about, contact: { email, phone }, applicationFormUrl, logoUrl, heroImageUrl, galleryUrls: string[], upcomingEvents: [...], featuredSongs: [...], counts: { senior, junior, members, total } }`
 - `GET /public/health` (alias of `/health`)
 

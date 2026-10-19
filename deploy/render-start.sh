@@ -23,8 +23,17 @@ cd "$(dirname "$0")/.."
 # DATABASE_FILE wins, then DATA_DIR/chorale.db, then server/data/chorale.db.
 DATABASE_FILE="${DATABASE_FILE:-${DATA_DIR:-$PWD/server/data}/chorale.db}"
 
+# Written when this boot could NOT recover the database. The server reads it on
+# startup and says so out loud (red banner + /api/health) instead of quietly
+# serving an empty database, which is how real records disappeared once already.
+MARKER_FILE="$(dirname "$DATABASE_FILE")/RESTORE-FAILED.txt"
+LOG_TAG="render-start"
+# shellcheck source=deploy/restore-alert.sh
+. "$(dirname "$0")/restore-alert.sh"
+
 if [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY_ID:-}" ] || [ -z "${S3_SECRET_ACCESS_KEY:-}" ]; then
   echo "[render-start] S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY not set — starting WITHOUT database replication (data is wiped on every deploy/restart)."
+  mark_restore_problem replication_disabled "durable storage is not configured (S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are unset), so every restart erases all data"
   exec npm start
 fi
 
@@ -47,6 +56,7 @@ if [ ! -x "$LITESTREAM_BIN" ]; then
     chmod +x "$LITESTREAM_BIN"
   else
     echo "[render-start] could not download litestream — starting WITHOUT replication (the site still runs; the database is not being backed up until this succeeds)."
+    mark_restore_problem litestream_unavailable "the Litestream binary could not be downloaded, so the database is neither restored nor backed up"
     exec npm start
   fi
 fi
@@ -81,16 +91,28 @@ chmod 600 "$LITESTREAM_CONFIG"
 if [ -f "$DATABASE_FILE" ]; then
   echo "[render-start] local database present — skipping restore."
 else
+  # Clear any marker from an earlier boot on this disk; it is rewritten below if
+  # this restore fails, so the app knows to complain loudly.
+  clear_restore_marker
   echo "[render-start] restoring database from s3://${S3_BUCKET}/${LITESTREAM_DB_PREFIX} (if a replica exists)…"
   attempt=1
+  restore_failed=0
   until "$LITESTREAM_BIN" restore -if-replica-exists -config "$LITESTREAM_CONFIG" "$DATABASE_FILE"; do
-    if [ "$attempt" -ge 3 ]; then
-      echo "[render-start] WARNING: restore still failing after ${attempt} attempts — continuing with an empty local database. Replication stays ON, so current data will be backed up; older snapshots remain in the bucket (litestream restore -timestamp can recover them)."
+    if [ "$attempt" -ge 5 ]; then
+      restore_failed=1
       break
     fi
+    echo "[render-start] restore attempt ${attempt} failed — retrying in 10s…"
     attempt=$((attempt + 1))
-    sleep 5
+    sleep 10
   done
+  if [ "$restore_failed" = "1" ]; then
+    # An empty database is about to be created. Say so in the logs AND to the
+    # app (marker + env), because silently serving an empty database is exactly
+    # how real member records disappeared unnoticed.
+    mark_restore_problem restore_failed "the database could not be restored from the bucket after ${attempt} attempts; starting with a fresh, empty database"
+    echo "[render-start] older snapshots may still be in the bucket: 'litestream restore -timestamp <time>' can recover them."
+  fi
 fi
 
 echo "[render-start] starting app under Litestream replication…"

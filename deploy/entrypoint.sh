@@ -16,12 +16,19 @@ APP_ENTRY="${APP_ENTRY:-/app/server/dist/index.js}"
 DATABASE_FILE="${DATABASE_FILE:-${DATA_DIR:-/data}/chorale.db}"
 mkdir -p "$(dirname "$DATABASE_FILE")" 2>/dev/null || true
 
+# Leaves a marker + a loud log line when the database could not be restored, so
+# the app never comes up quietly on an empty database (see deploy/restore-alert.sh).
+LOG_TAG="entrypoint"
+MARKER_FILE="$(dirname "$DATABASE_FILE")/RESTORE-FAILED.txt"
+. "$(dirname "$0")/restore-alert.sh"
+
 if [ -n "${S3_BUCKET:-}" ] && [ -n "${S3_ACCESS_KEY_ID:-}" ] && [ -n "${S3_SECRET_ACCESS_KEY:-}" ]; then
   REPLICA_TYPE="s3"
 elif [ -n "${REPLICA_BUCKET:-}" ]; then
   REPLICA_TYPE="gcs"
 else
   echo "[entrypoint] S3_* and REPLICA_BUCKET not set — starting WITHOUT replication (ephemeral data)."
+  mark_restore_problem replication_disabled "durable storage is not configured (S3_* / REPLICA_BUCKET are unset), so every restart erases all data"
   exec node "$APP_ENTRY"
 fi
 
@@ -55,8 +62,16 @@ EOF
   echo "[entrypoint] Restoring database from gs://${REPLICA_BUCKET}/${REPLICA_PREFIX} (if a replica exists)…"
 fi
 
-litestream restore -if-replica-exists -config "$LITESTREAM_CONFIG" "$DATABASE_FILE" \
-  || echo "[entrypoint] No replica found yet — starting with a fresh database."
+# `-if-replica-exists` exits 0 when the bucket simply has no replica yet (a real
+# first run). Any other failure is real: an unreachable bucket, a rejected key, or
+# a Backblaze transaction cap — and that must not be mistaken for "nothing to
+# restore" while the app starts up on an empty database.
+if litestream restore -if-replica-exists -config "$LITESTREAM_CONFIG" "$DATABASE_FILE"; then
+  clear_restore_marker
+else
+  mark_restore_problem restore_failed "the database could not be restored from the replica; starting with a fresh, empty database"
+  echo "[entrypoint] Older snapshots may still be in the bucket: 'litestream restore -timestamp <time>' can recover them."
+fi
 
 echo "[entrypoint] Starting app under Litestream replication…"
 exec litestream replicate -config "$LITESTREAM_CONFIG" -exec "node ${APP_ENTRY}"

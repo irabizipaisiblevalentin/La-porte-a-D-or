@@ -5,6 +5,7 @@ import { useAuth } from "../../auth/AuthProvider"
 import { useQuery } from "../../api/hooks"
 import { Badge, Spinner, ThemeToggle } from "../../components/ui"
 import { useDesktopNotifications } from "./useDesktopNotifications"
+import { RestoreAlertBanner } from "./RestoreAlertBanner"
 import { NAV_SECTIONS } from "./nav"
 
 function useUnreadCount(): number {
@@ -290,7 +291,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-7xl">{children}</div>
+          <div className="mx-auto w-full max-w-7xl">
+            <RestoreAlertBanner />
+            {children}
+          </div>
         </main>
 
         <footer className="px-6 py-4 text-center text-[11px] text-black/40 dark:text-ivory/35">

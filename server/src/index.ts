@@ -1,8 +1,9 @@
 import { createApp } from "./app.js"
-import { config } from "./config.js"
+import { config, restoreAlert } from "./config.js"
 import { migrate } from "./db/index.js"
 import { seed } from "./db/seed.js"
 import { seedDefaultAccounts } from "./db/seed-admins.js"
+import { reportRestoreAlert } from "./services/data-integrity.js"
 import { sessionMaintenance } from "./auth/session.js"
 import { rateLimitMaintenance } from "./middleware/rate-limit.js"
 import { clearExpiredLockouts, publishDueAnnouncements } from "./services/scheduler.js"
@@ -41,6 +42,9 @@ function bootstrapAdministrators(): void {
 }
 
 bootstrapAdministrators()
+
+/** A failed restore must never pass unnoticed — log it, audit it, ring the Chairman's bell. */
+reportRestoreAlert(restoreAlert)
 
 const app = createApp()
 const server = app.listen(config.port, config.host, () => {
