@@ -145,14 +145,16 @@ export const MAIL_WEBHOOK_TIMEOUT_MS = 20_000
 /**
  * Posts one message to the Apps Script web app.
  *
- * Apps Script always answers `/exec` with a 302 to `script.googleusercontent.com`;
- * that redirect has to be followed with the **same POST body**, because a
- * redirect-following HTTP client would downgrade the method to GET and Google
- * would answer "Script function not found: doGet" while silently sending
- * nothing. So the redirect is followed by hand and the body is repeated.
+ * Apps Script runs `doPost` on the POST to `/exec` itself, and answers with a 302
+ * to a one-time `script.googleusercontent.com/macros/echo` URL that **only serves
+ * the buffered reply over GET** (a POST there answers 405). So the redirect is
+ * followed by hand — POST first, then GET for the answer — rather than by a
+ * redirect-following client, whose behaviour is exactly backwards: it would
+ * re-POST or downgrade ambiguously and hide the reply. Verified against a real
+ * deployment, not assumed.
  *
- * A 200 that carries `{"ok":false}` means the script ran but `MailApp` refused
- * (quota, bad address); that is a failure and is reported as one.
+ * A 200 that carries `{"ok":false}` means the script ran but refused the message
+ * (quota, bad address, bad signature); that is a failure and is reported as one.
  */
 async function sendViaWebhook(webhook: MailWebhookConfig, mail: { to: string; subject: string; text: string }): Promise<void> {
   const ts = nowIso()
@@ -169,13 +171,17 @@ async function sendViaWebhook(webhook: MailWebhookConfig, mail: { to: string; su
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), MAIL_WEBHOOK_TIMEOUT_MS)
   try {
+    // The POST is what sends the message.
     let response = await fetch(webhook.url, {
       method: "POST", headers, body, redirect: "manual", signal: controller.signal,
     })
-    if (response.status >= 300 && response.status < 400) {
+    let hops = 0
+    while (response.status >= 300 && response.status < 400 && hops < 3) {
       const location = response.headers.get("location")
       if (!location) throw new Error(`The mail web app redirected without a location (HTTP ${response.status}).`)
-      response = await fetch(location, { method: "POST", headers, body, redirect: "manual", signal: controller.signal })
+      // GET, without the body: the reply for the POST already made is buffered here.
+      response = await fetch(location, { method: "GET", redirect: "manual", signal: controller.signal })
+      hops += 1
     }
 
     const text = await response.text()

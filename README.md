@@ -408,8 +408,9 @@ field mapping.
   including when the removed account had itself written to the append-only trail, whose pointer to
   that account is cleared while the history stays uneditable), and
   e-mail through a Google Apps Script mail web app (the credentials are posted to the configured web
-  app and the signature verifies, the 302 Apps Script always answers with is repeated as a POST rather
-  than downgraded to a GET that would silently send nothing, a refusal from the script is reported as a
+  app and the signature verifies, the 302 Apps Script answers with is followed as Google requires
+  (POST delivers the message, GET reads the reply — against a real deployment), a refusal from the
+  script is reported as a
   failure, an endpoint without the signing secret is not treated as configured, and an unreachable web
   app never undoes the membership).
 - `npm run typecheck` — server **and** web TypeScript compile with zero errors.

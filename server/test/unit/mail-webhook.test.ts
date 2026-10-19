@@ -6,9 +6,11 @@
  * sign-in details from its own Gmail. So the interesting parts to prove are:
  *
  *  - an approval really posts the credentials to the configured web app;
- *  - the call is signed, and the signature stays valid across the 302 that Apps
- *    Script always answers with (following that redirect as a plain GET would
- *    silently drop the message);
+ *  - the call is signed, and the reply survives the 302 that Apps Script always
+ *    answers with — the POST to `/exec` is what sends the message, and the
+ *    one-time target it redirects to serves the answer over GET only, so a
+ *    client that re-POSTs it would see a 405 and report a false failure for a
+ *    message that was in fact delivered;
  *  - a refusal from the script (MailApp quota, bad address) is reported as a
  *    failure rather than a success;
  *  - an unsigned endpoint setting is not treated as "configured", so the app
@@ -119,10 +121,11 @@ async function approveAs(cookie: string, applicationId: string): Promise<any> {
 }
 
 // ---------------------------------------------------------------------------
-// A stand-in for the Apps Script web app: it answers the first POST with a 302
-// to a second URL, exactly as Google does, and only accepts the mail at the
-// redirect target. A plain redirect-following client would arrive there as a
-// GET and lose the message; the test fails loudly if that happens.
+// A stand-in for the Apps Script web app, matching what a real deployment does
+// (verified against one): the POST to /exec is what runs `doPost` and sends the
+// message, and it answers 302 to a one-time URL that serves the buffered reply
+// over GET only — a POST there is refused. Getting this backwards would either
+// lose the reply or report a failure for a message that was in fact sent.
 // ---------------------------------------------------------------------------
 
 interface MailCall {
@@ -138,12 +141,14 @@ interface StandIn {
   url: string
   calls: MailCall[]
   setReply: (reply: { status: number; body: string }) => void
+  postHops: number
   close: () => Promise<void>
 }
 
 async function startMailWebApp(): Promise<StandIn> {
   const calls: MailCall[] = []
   let reply = { status: 200, body: JSON.stringify({ ok: true }) }
+  let postHops = 0
 
   const readBody = (req: http.IncomingMessage) =>
     new Promise<string>((resolve) => {
@@ -155,14 +160,25 @@ async function startMailWebApp(): Promise<StandIn> {
   const app = http.createServer(async (req, res) => {
     const body = await readBody(req)
     if (req.url === "/exec") {
-      // Google's first answer: a redirect the caller must repeat as a POST.
+      if ((req.method ?? "") !== "POST") {
+        res.writeHead(405, { "content-type": "text/plain" })
+        res.end("Script function not found: doGet")
+        return
+      }
+      let parsed: any = null
+      try { parsed = JSON.parse(body) } catch { parsed = null }
+      if (parsed) calls.push({ ...parsed, method: req.method ?? "" })
       res.writeHead(302, { location: `http://127.0.0.1:${(app.address() as any).port}/usercontent` })
       res.end()
       return
     }
-    let parsed: any = null
-    try { parsed = JSON.parse(body) } catch { parsed = null }
-    if (parsed) calls.push({ ...parsed, method: req.method ?? "" })
+    // The buffered reply: GET only, exactly like script.googleusercontent.com.
+    if ((req.method ?? "") !== "GET") {
+      postHops += 1
+      res.writeHead(405, { "content-type": "text/html" })
+      res.end("<html><body>Page introuvable</body></html>")
+      return
+    }
     res.writeHead(reply.status, { "content-type": "application/json" })
     res.end(reply.body)
   })
@@ -173,6 +189,7 @@ async function startMailWebApp(): Promise<StandIn> {
     url: `http://127.0.0.1:${port}/exec`,
     calls,
     setReply: (next) => { reply = next },
+    get postHops() { return postHops },
     close: () => new Promise<void>((resolve) => app.close(() => resolve())),
   }
 }
@@ -228,7 +245,8 @@ test("an approval delivers the sign-in details through the Apps Script web app",
 
     assert.equal(relay.calls.length, 1, "exactly one mail call reached the web app")
     const call = relay.calls[0]
-    assert.equal(call.method, "POST", "the redirect must be repeated as a POST, not a GET")
+    assert.equal(call.method, "POST", "the message is delivered by the POST to /exec")
+    assert.equal(relay.postHops, 0, "the 302 is followed with a GET; a POST there is refused by Apps Script")
     assert.equal(call.to, "delivered@example.com")
     assert.ok(call.text.includes(approved.credentials.password), "the message carries the member's password")
     assert.ok(call.text.includes(approved.credentials.username), "the message carries the sign-in name")
