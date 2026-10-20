@@ -15,6 +15,7 @@ test("there are exactly the documented roles", () => {
   const keys = ROLES.map((role) => role.key).sort()
   assert.deepEqual(keys, [
     "chairman",
+    "events_coordinator",
     "junior_admin",
     "junior_singer",
     "members_admin",
@@ -24,10 +25,46 @@ test("there are exactly the documented roles", () => {
   ])
 })
 
-test("there are exactly four administrator roles", () => {
+test("there are exactly five administrator roles", () => {
   const admins = ROLES.filter((role) => ADMIN_ROLE_KEYS.includes(role.key)).map((role) => role.key).sort()
   assert.deepEqual(admins, [...ADMIN_ROLE_KEYS].sort())
-  assert.equal(admins.length, 4)
+  assert.equal(admins.length, 5)
+})
+
+test("the Events Coordinator runs events and nothing else", () => {
+  const coordinator = ROLES.find((role) => role.key === "events_coordinator")!
+  const grants = new Map(coordinator.grants.map((grant) => [grant.key, grant.scope]))
+
+  // Everything the events programme needs.
+  for (const key of ["events.read", "events.write", "events.manage", "events.payment.approve", "events.checkin"]) {
+    assert.equal(grants.get(key), "global", `the coordinator must hold ${key}`)
+  }
+
+  // The register is read-only, so participants can be picked without any group's
+  // records being changed, and without reading sensitive minor data.
+  assert.equal(grants.get("member.read"), "global")
+  for (const key of ["member.write", "member.reset_password", "member.delete", "member.sensitive.read"]) {
+    assert.equal(grants.has(key), false, `the coordinator must not hold ${key}`)
+  }
+
+  // Applications belong to each group's own administrator.
+  for (const key of ["application.read", "application.review", "application.decide"]) {
+    assert.equal(grants.has(key), false, `the coordinator must not hold ${key}`)
+  }
+
+  // Nor does it administer the platform.
+  for (const key of ["settings.read", "settings.write", "roles.manage", "users.manage", "audit.read"]) {
+    assert.equal(grants.has(key), false, `the coordinator must not hold ${key}`)
+  }
+})
+
+test("only the coordinator may set an audience or a contribution, besides the Chairman", () => {
+  // The three permissions that gate the audience, the money and the door must not
+  // leak to the group administrators, or every group could re-aim every event.
+  for (const key of ["events.manage", "events.payment.approve", "events.checkin"]) {
+    const holders = ROLES.filter((role) => role.grants.some((grant) => grant.key === key)).map((role) => role.key).sort()
+    assert.deepEqual(holders, ["chairman", "events_coordinator"], `${key} should be the coordinator's and the Chairman's alone`)
+  }
 })
 
 test("every granted permission exists and every grant scope is allowed", () => {

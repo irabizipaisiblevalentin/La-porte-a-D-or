@@ -21,6 +21,7 @@ process.env.CHAIRMAN_PASSWORD = "ChairmanTest!2026aa"
 process.env.SENIOR_ADMIN_PASSWORD = "SeniorTest!2026bb"
 process.env.JUNIOR_ADMIN_PASSWORD = "JuniorTest!2026cc"
 process.env.MEMBERS_ADMIN_PASSWORD = "MembersTest!2026dd"
+process.env.EVENTS_COORDINATOR_PASSWORD = "CoordinatorTest!2026ee"
 
 const { migrate, one, run } = await import("../../src/db/index.js")
 const { seed } = await import("../../src/db/seed.js")

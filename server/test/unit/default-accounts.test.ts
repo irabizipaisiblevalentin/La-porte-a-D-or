@@ -26,8 +26,8 @@ test("default accounts: emails are unique and normalised", () => {
   }
 })
 
-test("default accounts: exactly four administrators, one per admin role", () => {
-  assert.equal(DEFAULT_ACCOUNTS.length, 4)
+test("default accounts: one administrator per admin role", () => {
+  assert.equal(DEFAULT_ACCOUNTS.length, ADMIN_ROLE_KEYS.length)
   for (const account of DEFAULT_ACCOUNTS) {
     assert.equal(account.kind, "admin", `${account.email} should be an admin account`)
     assert.ok(ADMIN_ROLE_KEYS.includes(account.roleKey), `${account.email} should hold an admin role`)
@@ -37,6 +37,14 @@ test("default accounts: exactly four administrators, one per admin role", () => 
     DEFAULT_ACCOUNTS.map((account) => account.roleKey).sort(),
     [...ADMIN_ROLE_KEYS].sort(),
   )
+})
+
+test("default accounts: the Events Coordinator is an administrator like the rest", () => {
+  const coordinator = DEFAULT_ACCOUNTS.find((account) => account.roleKey === "events_coordinator")
+  assert.ok(coordinator, "the Events Coordinator must ship as a default administrator")
+  assert.equal(coordinator!.kind, "admin")
+  assert.equal(coordinator!.groupId, null, "the coordinator answers to no single group")
+  assert.ok(validatePasswordStrength(coordinator!.password).ok)
 })
 
 test("default accounts: every profile photo, when set, lives under /assets/avatars/", () => {

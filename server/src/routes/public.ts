@@ -2,6 +2,7 @@ import { Router } from "express"
 import { config } from "../config.js"
 import { all, one } from "../db/index.js"
 import { nowIso, today } from "../lib/time.js"
+import { previewPass } from "../services/event-pass.js"
 
 export const publicRouter: Router = Router()
 
@@ -34,6 +35,95 @@ interface FeaturedSong {
   /** The YouTube id to play when the card is clicked; null when only a still exists. */
   youtubeVideoId: string | null
 }
+
+/**
+ * GET /public/events — the choir's public calendar.
+ *
+ * Only events the coordinator published to the public site (`audience_public`),
+ * and only the ones still ahead of us plus anything in the next fortnight that
+ * has just passed. A contribution, when there is one, is shown as information:
+ * a visitor cannot pay here, and no participant, payment or pass data is
+ * exposed.
+ */
+publicRouter.get("/events", (_req, res) => {
+  const rows = all<{
+    id: string
+    name: string
+    event_type: string
+    date: string
+    start_time: string | null
+    end_time: string | null
+    location: string | null
+    description: string | null
+    is_public: number
+    audience_public: number
+    requires_contribution: number
+    contribution_amount: number | null
+    contribution_note: string | null
+  }>(
+    `SELECT id, name, event_type, date, start_time, end_time, location, description,
+            is_public, audience_public, requires_contribution, contribution_amount, contribution_note
+       FROM events
+      WHERE is_public = 1 AND status <> 'cancelled' AND date >= ?
+      ORDER BY date ASC, start_time ASC
+      LIMIT 100`,
+    today(),
+  )
+
+  const audienceByEvent = all<{ event_id: string; name: string }>(
+    `SELECT ea.event_id, g.name
+       FROM event_audiences ea
+       JOIN groups g ON g.id = ea.group_id
+       JOIN events e ON e.id = ea.event_id
+      WHERE e.is_public = 1
+      ORDER BY g.name COLLATE NOCASE`,
+  )
+  const names = new Map<string, string[]>()
+  for (const row of audienceByEvent) {
+    names.set(row.event_id, [...(names.get(row.event_id) ?? []), row.name])
+  }
+
+  res.json({
+    events: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      eventType: row.event_type,
+      date: row.date,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      location: row.location,
+      description: row.description,
+      audience: names.get(row.id) ?? [],
+      contribution:
+        row.requires_contribution === 1 && row.contribution_amount !== null
+          ? { amount: row.contribution_amount, note: row.contribution_note }
+          : null,
+    })),
+  })
+})
+
+/**
+ * GET /public/pass/:token — what a scanned entrance QR code opens.
+ *
+ * Deliberately a *preview*: scanning proves nothing on its own, because a pass
+ * can be photographed and forwarded. It shows whose pass it is and whether it
+ * has been used, and the steward admits them with the signed-in check-in screen.
+ * Only the holder's name is exposed, never contact details or payment data.
+ */
+publicRouter.get("/pass/:token", (req, res) => {
+  const preview = previewPass(String(req.params.token))
+  if (!preview.pass || !preview.event) {
+    res.status(404).json({ valid: false, message: "This entrance pass is not recognised." })
+    return
+  }
+  res.json({
+    valid: preview.pass.status !== "revoked",
+    alreadyIn: preview.alreadyIn,
+    status: preview.pass.status,
+    holder: { name: preview.pass.full_name ?? "Member", memberNo: preview.pass.member_no ?? "" },
+    event: preview.event,
+  })
+})
 
 // GET /public/landing — the only public read model. No member, report or admin data.
 publicRouter.get("/landing", (_req, res) => {
