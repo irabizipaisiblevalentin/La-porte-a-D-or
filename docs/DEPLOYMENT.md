@@ -182,23 +182,66 @@ that is the normal, expected path.
 
 ## Importing the YouTube channel's music
 
-The channel's uploads can be brought into the catalogue in one pass, without a
-YouTube API key, using the channel's public feed:
+The channel's songs are brought into the catalogue by a **Chairman-only button
+inside the application**:
+
+1. Sign in as the Chairman.
+2. *Music Library* → **Import from YouTube** → **Import songs**.
+
+Nothing needs a YouTube API key: the song list is read from the channel's public
+feed and lives in `server/src/services/channel-import.ts`.
+
+**Why it runs inside the app.** Writing the catalogue into the database file
+directly (with `litestream restore` and a script) is what corrupted the replica:
+a WAL-mode database was copied with a write still in flight, and the running
+instance was writing to the same prefix at the same time. `POST
+/api/songs/import-channel` runs in one transaction, performed by the one writer
+that replicates healthily, so the change is an ordinary, durable write.
+
+Rules the import follows:
+
+- live streams and concert recordings are **not** songs, so they are not listed;
+- each song is created once, its video approved and **primary**, which is what
+  makes it playable and visible on `/music`;
+- every song is assigned to **all three groups** (the full-choir repertoire);
+- a song already in the catalogue is re-used by normalised title and an existing
+  video link is refreshed, never duplicated — so a second run changes nothing
+  (verified: the second run creates 0 rows, and the test suite asserts it).
+
+To change the list, edit `CHANNEL_SONGS` in
+`server/src/services/channel-import.ts` and press the button again.
+
+For a **local** database only, the same code can be run from a shell:
 
 ```bash
-# against a copy of the live database (never the live file while the app runs)
-litestream restore -config litestream.yml ./chorale.db
-DATA_DIR=. DATABASE_FILE=./chorale.db APP_SECRET=... npx tsx scripts/import-channel-music.ts
+DATA_DIR=/tmp/importtest DATABASE_FILE=/tmp/importtest/chorale.db \
+  APP_SECRET=... npx tsx scripts/import-channel-music.ts
 ```
 
-`scripts/import-channel-music.ts` records which videos count as songs and which
-are live streams or concert recordings (deliberately skipped). Each song is
-created once, its video approved and primary, and every song assigned to all
-three groups. Re-running it is safe: existing songs are re-used by normalised
-title and video links are refreshed, never duplicated (verified: a second run
-created 0 rows).
+Do not point that at the live database file.
 
-To change the list, edit `SONGS` in that file and run it again.
+## The choir's gallery photographs
+
+The site's gallery is built from the choir's own photographs, which are **not**
+committed at full resolution. The originals live in `images/choir pics/images/`
+(hundreds of MB, ignored by Git); the web-sized copies the site serves are
+committed under `web/public/assets/gallery/choir/`.
+
+Regenerate them after adding photographs:
+
+```bash
+python3 scripts/process-gallery-images.py     # downscale -> full/ and thumb/
+python3 scripts/generate-gallery-manifest.py  # -> web/src/pages/public/gallery/photos.generated.ts
+```
+
+`process-gallery-images.py` needs Pillow. It applies EXIF rotation, writes a
+1400 px copy for the lightbox and a 640 px copy for the grid, and prints the
+total size. `generate-gallery-manifest.py` turns that manifest into the typed
+catalogue the pages import, grouping photos into their collections.
+
+Photographs the Chairman uploads in *Settings → Brand & gallery* take priority
+over the bundled ones on the landing page; the bundled photographs remain the
+fallback so the gallery is never empty.
 
 ## Backblaze B2 setup (one time)
 

@@ -2,10 +2,21 @@ import type { ReactNode } from "react"
 import { Outlet, Route, Routes } from "react-router-dom"
 import { RequireAuth, RequirePasswordChange, RequirePermission } from "./auth/guards"
 import { AppShell } from "./components/layout/AppShell"
+import { BootSplash } from "./components/layout/BootSplash"
 import { ContactChairman } from "./components/layout/ContactChairman"
 import { PublicLayout } from "./components/layout/PublicLayout"
 import { LandingPage } from "./pages/public/LandingPage"
 import { PublicMusicPage } from "./pages/public/PublicMusicPage"
+import { PublicAboutPage } from "./pages/public/PublicAboutPage"
+import { PublicContactPage } from "./pages/public/PublicContactPage"
+import { PublicEventsPage } from "./pages/public/PublicEventsPage"
+import { GalleryLayout } from "./pages/public/gallery/GalleryLayout"
+import {
+  GalleryAllPage,
+  GalleryCollectionPage,
+  GalleryMembersPage,
+  GalleryPerformancesPage,
+} from "./pages/public/gallery/GalleryPages"
 import { LoginPage, AdminLoginPage } from "./pages/auth/LoginPage"
 import { SetupPage } from "./pages/auth/SetupPage"
 import { InvitePage } from "./pages/auth/InvitePage"
@@ -46,6 +57,7 @@ function guarded(permission: string, element: ReactNode): ReactNode {
 export function App() {
   return (
     <>
+      <BootSplash />
       <Routes>
       <Route
         path="/"
@@ -63,6 +75,44 @@ export function App() {
           </PublicLayout>
         }
       />
+      <Route
+        path="/about"
+        element={
+          <PublicLayout>
+            <PublicAboutPage />
+          </PublicLayout>
+        }
+      />
+      <Route
+        path="/events"
+        element={
+          <PublicLayout>
+            <PublicEventsPage />
+          </PublicLayout>
+        }
+      />
+      <Route
+        path="/contact"
+        element={
+          <PublicLayout>
+            <PublicContactPage />
+          </PublicLayout>
+        }
+      />
+      <Route
+        path="/gallery"
+        element={
+          <PublicLayout>
+            <GalleryLayout />
+          </PublicLayout>
+        }
+      >
+        <Route index element={<GalleryAllPage />} />
+        <Route path="august-2026" element={<GalleryCollectionPage collection="august-2026" />} />
+        <Route path="july-2026" element={<GalleryCollectionPage collection="july-2026" />} />
+        <Route path="performances" element={<GalleryPerformancesPage />} />
+        <Route path="members" element={<GalleryMembersPage />} />
+      </Route>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/admin" element={<AdminLoginPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />

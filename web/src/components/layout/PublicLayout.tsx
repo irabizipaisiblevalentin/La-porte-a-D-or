@@ -1,63 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import { LogIn, Menu, X } from "lucide-react"
 import { ThemeToggle } from "../../components/ui"
 
 const LINKS = [
   { label: "Home", to: "/" },
-  { label: "About", to: "/#about" },
+  { label: "About", to: "/about" },
   { label: "Music", to: "/music" },
-  { label: "Gallery", to: "/#gallery" },
-  { label: "Events", to: "/#events" },
-  { label: "Contact", to: "/#contact" },
+  { label: "Gallery", to: "/gallery" },
+  { label: "Events", to: "/events" },
+  { label: "Contact", to: "/contact" },
 ]
 
-/**
- * A section link on the home page. From anywhere else it becomes
- * `/#section` and lands on the home page first, so a section link works from
- * the music page too instead of doing nothing.
- */
-function SectionLink({
-  to,
-  className,
-  children,
-  onNavigate,
-}: {
-  to: string
-  className: string
-  children: ReactNode
-  onNavigate?: () => void
-}) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [path, hash] = to.split("#")
-  const targetPath = path || "/"
-
-  // Already on the home page: a plain hash link is enough, and it keeps the
-  // browser's own scroll-into-view behaviour.
-  if (location.pathname === targetPath && hash) {
-    return (
-      <a href={`#${hash}`} className={className} onClick={onNavigate}>
-        {children}
-      </a>
-    )
-  }
-
-  return (
-    <button
-      type="button"
-      className={`${className} text-left`}
-      onClick={() => {
-        navigate(to)
-        onNavigate?.()
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 export const APPLICATION_FORM_URL = "https://forms.gle/JZJmWZNMQAYNm5uq5"
+export const YOUTUBE_CHANNEL_URL = "https://www.youtube.com/@laportedor"
 
 export function PublicLayout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
@@ -93,17 +49,11 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </Link>
 
           <nav className="hidden items-center gap-1 lg:flex">
-            {LINKS.map((link) =>
-              link.to.includes("#") ? (
-                <SectionLink key={link.to} to={link.to} className="btn btn-ghost btn-sm text-ivory/85">
-                  {link.label}
-                </SectionLink>
-              ) : (
-                <Link key={link.to} to={link.to} className="btn btn-ghost btn-sm text-ivory/85">
-                  {link.label}
-                </Link>
-              ),
-            )}
+            {LINKS.map((link) => (
+              <Link key={link.to} to={link.to} className="btn btn-ghost btn-sm text-ivory/85">
+                {link.label}
+              </Link>
+            ))}
           </nav>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
@@ -126,27 +76,16 @@ export function PublicLayout({ children }: { children: ReactNode }) {
         {open ? (
           <div className="border-t border-gold-400/20 bg-charcoal-950/95 px-5 py-3 lg:hidden">
             <nav className="flex flex-col">
-              {LINKS.map((link) =>
-                link.to.includes("#") ? (
-                  <SectionLink
-                    key={link.to}
-                    to={link.to}
-                    className="sidebar-link text-ivory hover:text-gold-200"
-                    onNavigate={() => setOpen(false)}
-                  >
-                    {link.label}
-                  </SectionLink>
-                ) : (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className="sidebar-link text-ivory hover:text-gold-200"
-                    onClick={() => setOpen(false)}
-                  >
-                    {link.label}
-                  </Link>
-                ),
-              )}
+              {LINKS.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  className="sidebar-link text-ivory hover:text-gold-200"
+                  onClick={() => setOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
               <a href={APPLICATION_FORM_URL} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-sm mt-2">
                 Apply for Membership
               </a>
@@ -164,7 +103,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
       <main>{children}</main>
 
       <footer className="border-t border-black/10 bg-white px-5 py-10 dark:border-gold-400/15 dark:bg-charcoal-900">
-        <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-3">
+        <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 md:grid-cols-4">
           <div>
             <div className="flex items-center gap-2.5">
               <img src="/logo.png" alt="" className="h-11 w-11 object-contain" />
@@ -185,9 +124,24 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </a>
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-600 dark:text-gold-300">Members</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-600 dark:text-gold-300">Explore</p>
             <Link to="/music" className="link mt-2 block text-sm">
               Our music
+            </Link>
+            <Link to="/gallery" className="link mt-1 block text-sm">
+              Gallery
+            </Link>
+            <Link to="/events" className="link mt-1 block text-sm">
+              Events
+            </Link>
+            <Link to="/about" className="link mt-1 block text-sm">
+              About the choir
+            </Link>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-600 dark:text-gold-300">Members</p>
+            <Link to="/contact" className="link mt-2 block text-sm">
+              Contact us
             </Link>
             <Link to="/admin/login" className="link mt-1 block text-sm">
               Administrator login

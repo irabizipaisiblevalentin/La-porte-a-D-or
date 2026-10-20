@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { ThemeToggle } from "../../components/ui"
+import { CHOIR_HERO_PHOTO } from "../../pages/public/gallery/photos.generated"
 
 export function AuthLayout({
   title,
@@ -16,7 +17,7 @@ export function AuthLayout({
   return (
     <div className="relative flex min-h-dvh items-center justify-center overflow-hidden px-5 py-10" style={{ background: "var(--color-charcoal-950)" }}>
       <div className="absolute inset-0 -z-10">
-        <img src="/assets/gallery/senior-1.png" alt="" className="h-full w-full object-cover opacity-15" />
+        <img src={CHOIR_HERO_PHOTO} alt="" className="h-full w-full object-cover opacity-15" />
         <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,15,0.85), rgba(10,11,15,0.97))" }} />
       </div>
       <div className="absolute right-4 top-4">

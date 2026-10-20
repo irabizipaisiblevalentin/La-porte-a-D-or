@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery } from "../../api/hooks"
-import { APPLICATION_FORM_URL } from "../../components/layout/PublicLayout"
+import { APPLICATION_FORM_URL, YOUTUBE_CHANNEL_URL } from "../../components/layout/PublicLayout"
 import { Card, EmptyState, Spinner, VideoPlayerModal, VideoThumbnail } from "../../components/ui"
-import { CalendarDays, Mail, Music2, Phone, PlayCircle, Users } from "lucide-react"
+import { CHOIR_PHOTOS } from "./gallery/photos.generated"
+import { ArrowRight, CalendarDays, Images, Mail, Music2, Phone, PlayCircle, Users } from "lucide-react"
 
 interface LandingSong {
   id: string
@@ -33,28 +34,17 @@ interface LandingData {
   counts: { senior: number; junior: number; members: number; total: number }
 }
 
-/** Photographs supplied by the choir, bundled with the application. */
-const PROVIDED_GALLERY = [
-  "/assets/gallery/photo-1.png",
-  "/assets/gallery/member-1.png",
-  "/assets/gallery/senior-1.png",
-  "/assets/gallery/junior-1.png",
-  "/assets/gallery/events.png",
-  "/assets/gallery/member-2.png",
-  "/assets/gallery/senior-3.png",
-  "/assets/gallery/junior-3.png",
-  "/assets/gallery/member-3.png",
-  "/assets/gallery/senior-4.png",
-  "/assets/gallery/junior-junior.png",
-  "/assets/gallery/senior-2.png",
-]
+/** A short strip of the choir's own photographs for the landing page. */
+const HERO_PHOTOS = CHOIR_PHOTOS.slice(0, 8)
 
 export function LandingPage() {
   const { data, loading } = useQuery<LandingData>("/public/landing")
   /** The featured video a visitor asked to watch; null when nothing is playing. */
   const [watching, setWatching] = useState<LandingSong | null>(null)
-  const gallery = data && data.galleryUrls.length > 0 ? data.galleryUrls : PROVIDED_GALLERY
-  const heroImage = data?.heroImageUrl ?? "/assets/gallery/photo-1.png"
+  // Any photographs the Chairman has uploaded take priority; otherwise the
+  // choir's own bundled photos are used. The stock placeholders are gone.
+  const gallery = data && data.galleryUrls.length > 0 ? data.galleryUrls : HERO_PHOTOS.map((photo) => photo.thumb)
+  const heroImage = data?.heroImageUrl ?? CHOIR_PHOTOS[0]?.full ?? "/logo.png"
   const formUrl = data?.applicationFormUrl || APPLICATION_FORM_URL
 
   return (
@@ -79,9 +69,9 @@ export function LandingPage() {
               <a href={formUrl} target="_blank" rel="noopener noreferrer" className="btn btn-gold">
                 Apply for Membership
               </a>
-              <a href="/login" className="btn btn-outline text-ivory">
-                Member Login
-              </a>
+              <Link to="/music" className="btn btn-outline text-ivory">
+                <PlayCircle size={16} /> Listen to our music
+              </Link>
             </div>
             <p className="mt-3 text-xs text-ivory/50">
               All applications go through the official Google Form. There is no public self-registration.
@@ -133,11 +123,24 @@ export function LandingPage() {
                 </Card>
               ))}
             </div>
+            <Link to="/about" className="btn btn-outline mt-6">
+              More about the choir <ArrowRight size={15} />
+            </Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <img src="/assets/gallery/member-1.png" alt="Choir members" className="col-span-2 h-56 w-full rounded-2xl object-cover" />
-            <img src="/assets/gallery/senior-2.png" alt="Senior choir members" className="h-40 w-full rounded-2xl object-cover" />
-            <img src="/assets/gallery/junior-2.png" alt="Junior choir members" className="h-40 w-full rounded-2xl object-cover" />
+            {HERO_PHOTOS.slice(0, 3).map((photo, index) => (
+              <img
+                key={photo.key}
+                src={photo.thumb}
+                alt={photo.alt}
+                loading={index === 0 ? "eager" : "lazy"}
+                className={
+                  index === 0
+                    ? "col-span-2 h-56 w-full rounded-2xl object-cover"
+                    : "h-40 w-full rounded-2xl object-cover"
+                }
+              />
+            ))}
           </div>
         </div>
       </section>
@@ -197,26 +200,35 @@ export function LandingPage() {
               />
             )}
           </div>
-          <div className="mt-8 flex justify-center">
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link to="/music" className="btn btn-gold">
               <PlayCircle size={16} /> See all our music
             </Link>
+            <a href={YOUTUBE_CHANNEL_URL} target="_blank" rel="noopener noreferrer" className="btn btn-outline">
+              Visit our YouTube channel
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Gallery */}
+      {/* Gallery preview */}
       <section id="gallery" className="mx-auto max-w-7xl scroll-mt-24 px-5 py-16">
-        <SectionTitle eyebrow="Gallery" title="Moments from the choir" />
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <SectionTitle eyebrow="Gallery" title="Moments from the choir" />
+          <Link to="/gallery" className="btn btn-outline">
+            <Images size={16} /> Open the full gallery
+          </Link>
+        </div>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {gallery.map((url, index) => (
-            <img
-              key={`${url}-${index}`}
-              src={url}
-              alt="Chorale La Porte d'Or"
-              loading="lazy"
-              className="aspect-square w-full rounded-2xl object-cover transition-transform duration-300 hover:scale-[1.02]"
-            />
+          {gallery.slice(0, 8).map((url, index) => (
+            <Link key={`${url}-${index}`} to="/gallery" className="group block overflow-hidden rounded-2xl">
+              <img
+                src={url}
+                alt="Chorale La Porte d'Or"
+                loading="lazy"
+                className="aspect-square w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              />
+            </Link>
           ))}
         </div>
       </section>
@@ -224,11 +236,16 @@ export function LandingPage() {
       {/* Events */}
       <section id="events" className="scroll-mt-24 border-y border-black/5 bg-white py-16 dark:border-gold-400/10 dark:bg-charcoal-900">
         <div className="mx-auto max-w-7xl px-5">
-          <SectionTitle eyebrow="What's next" title="Upcoming public events" />
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <SectionTitle eyebrow="What's next" title="Upcoming public events" />
+            <Link to="/events" className="btn btn-outline">
+              <CalendarDays size={16} /> All events
+            </Link>
+          </div>
           <div className="mt-6">
             {data && data.upcomingEvents.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {data.upcomingEvents.map((event) => (
+                {data.upcomingEvents.slice(0, 3).map((event) => (
                   <Card key={event.id} className="flex items-start gap-3 p-4">
                     <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl" style={{ background: "color-mix(in srgb, var(--color-gold-400) 14%, transparent)" }}>
                       <CalendarDays size={18} className="text-gold-600 dark:text-gold-300" />
@@ -263,9 +280,14 @@ export function LandingPage() {
               Membership is reviewed by the correct group administrator. Submitting the form does not create an account
               automatically; approved applicants receive secure account setup instructions.
             </p>
-            <a href={formUrl} target="_blank" rel="noopener noreferrer" className="btn btn-gold mt-5">
-              Open the official application form
-            </a>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <a href={formUrl} target="_blank" rel="noopener noreferrer" className="btn btn-gold">
+                Open the official application form
+              </a>
+              <Link to="/contact" className="btn btn-outline">
+                Contact the choir
+              </Link>
+            </div>
           </Card>
           <Card className="p-6">
             <SectionTitle eyebrow="Contact" title="Reach the choir" />

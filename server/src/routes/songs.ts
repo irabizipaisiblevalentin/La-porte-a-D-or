@@ -7,8 +7,9 @@ import { recordAudit } from "../lib/audit.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
 import { audioUpload } from "../middleware/upload.js"
-import { requireAuth, requirePermission } from "../middleware/auth.js"
+import { requireAuth, requirePermission, requireRole } from "../middleware/auth.js"
 import { listGroups } from "../services/groups.js"
+import { importChannelMusic, CHANNEL_URL } from "../services/channel-import.js"
 import { deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
 
 export const songsRouter: Router = Router()
@@ -202,6 +203,46 @@ songsRouter.get("/taxonomy", requireAuth, (_req, res) => {
   const categories = all("SELECT id, key, name, sort_order FROM song_categories ORDER BY sort_order, name")
   const stages = all("SELECT id, key, name, sort_order FROM learning_stages ORDER BY sort_order, name")
   res.json({ categories, stages, groups: listGroups() })
+})
+
+// ---------------------------------------------------------------------------
+// One-time channel import
+// ---------------------------------------------------------------------------
+
+/**
+ * Brings the choir's own YouTube channel into the catalogue.
+ *
+ * Restricted to the Chairman and run in one transaction inside the running
+ * application, so the change is an ordinary write that replicates normally.
+ * The songs are the channel's individual pieces; live streams and concert
+ * recordings are deliberately not part of it. Running it twice changes nothing
+ * the second time, so it is safe to press more than once.
+ */
+songsRouter.post("/import-channel", requireAuth, requireRole("chairman"), (req, res) => {
+  const report = importChannelMusic(req.auth!.id)
+  const added = report.songsCreated
+  recordAudit({
+    actorId: req.auth!.id,
+    actorName: req.auth!.displayName,
+    action: "music.channel_import",
+    entityType: "song",
+    entityId: null,
+    summary:
+      added > 0
+        ? `Imported ${added} song${added === 1 ? "" : "s"} from the choir's YouTube channel`
+        : "Ran the YouTube channel import — the catalogue was already up to date",
+    detail: { ...report },
+    ip: req.ip,
+  })
+  res.json({
+    ...report,
+    channelUrl: CHANNEL_URL,
+    // Plain language for the person who pressed the button.
+    message:
+      added > 0
+        ? `${added} song${added === 1 ? "" : "s"} added to the catalogue. Everything is assigned to all three groups and playable on the music page.`
+        : "Nothing new to add — every song from the channel is already in the catalogue.",
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
-import { Library, Play, Plus, Search } from "lucide-react"
+import { Library, Play, Plus, Search, Youtube } from "lucide-react"
 import { api, ApiError, toQuery } from "../../api/client"
 import { useQuery, useDebounced } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
@@ -108,7 +108,7 @@ function formatDate(value: string | null | undefined): string {
 
 export function MusicLibraryPage() {
   const navigate = useNavigate()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
   const toast = useToast()
 
   const [search, setSearch] = useState("")
@@ -121,6 +121,9 @@ export function MusicLibraryPage() {
   const [creating, setCreating] = useState(false)
   /** The song whose video is playing in the dialog; null when nothing is playing. */
   const [watching, setWatching] = useState<Song | null>(null)
+  /** The one-time channel import, and whether it is running or awaiting a confirm. */
+  const [importOpen, setImportOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     setPage(1)
@@ -222,6 +225,28 @@ export function MusicLibraryPage() {
   ]
 
   const canWrite = can("music.write")
+  const isChairman = Boolean(user?.roles.includes("chairman"))
+
+  /** Runs the one-time import of the choir's own YouTube channel. */
+  async function runChannelImport() {
+    setImporting(true)
+    try {
+      const report = await api.post<{
+        songsCreated: number
+        videosLinked: number
+        groupsAssigned: number
+        message: string
+      }>("/songs/import-channel", {})
+      toast.success(report.message)
+      setImportOpen(false)
+      songs.reload()
+      taxonomy.reload()
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "The channel import could not be completed.")
+    } finally {
+      setImporting(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -231,9 +256,16 @@ export function MusicLibraryPage() {
         breadcrumbs={[{ label: "Overview", to: "/app" }, { label: "Music Library" }]}
         actions={
           canWrite ? (
-            <Button variant="gold" icon={<Plus size={16} />} onClick={() => setCreating(true)}>
-              New song
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {isChairman ? (
+                <Button variant="outline" icon={<Youtube size={16} />} onClick={() => setImportOpen(true)}>
+                  Import from YouTube
+                </Button>
+              ) : null}
+              <Button variant="gold" icon={<Plus size={16} />} onClick={() => setCreating(true)}>
+                New song
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -393,6 +425,34 @@ export function MusicLibraryPage() {
           }}
         />
       ) : null}
+
+      <Modal
+        open={importOpen}
+        onClose={() => (importing ? undefined : setImportOpen(false))}
+        title="Import from the choir's YouTube channel"
+        description="Adds the choir's own songs from @laportedor to the catalogue."
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setImportOpen(false)} disabled={importing}>
+              Cancel
+            </Button>
+            <Button variant="gold" onClick={() => void runChannelImport()} loading={importing}>
+              Import songs
+            </Button>
+          </>
+        }
+      >
+        <ul className="flex flex-col gap-2 text-sm">
+          <li>Every individual song from the channel is added to the catalogue.</li>
+          <li>Live streams and concert recordings are skipped — they are not songs.</li>
+          <li>Each song is assigned to Senior, Junior and Support members alike.</li>
+          <li>Songs already in the catalogue are never duplicated.</li>
+        </ul>
+        <p className="muted mt-3 text-xs">
+          This runs once. Pressing it again is harmless: if everything is already imported, nothing changes.
+        </p>
+      </Modal>
 
       {canWrite ? null : (
         <p className="muted flex items-center gap-2 text-xs">

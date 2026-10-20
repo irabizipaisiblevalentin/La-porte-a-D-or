@@ -35,8 +35,10 @@ gold/charcoal premium interface in light and dark themes.
 
 | Module | Capability |
 | --- | --- |
-| **Public site** | Landing page with the choir's real logo and photographs, about, music highlights (official YouTube embeds), gallery, upcoming public events, contact, and the official application form link. |
+| **Public site** | One page per navigation item — Home, About, Music, Gallery, Events and Contact — with the choir's real logo and its own photographs. Each opens on its own address. |
 | **Our music (public)** | `/music` — the whole catalogue on one page, no sign-in, searchable and filterable, every performance playable in the official YouTube player on click. |
+| **Gallery (public)** | `/gallery` — the choir's own photographs (307 of them) with its own sub-pages: All photos, one page per collection, Performances and Members. Click any photo to open it full-screen; arrow keys or a swipe move between them. |
+| **Opening animation** | A spinning-logo boot splash while the application starts, played once per visit and skipped when the browser asks for reduced motion. |
 | **Admissions** | Applications arrive from the Google Form (webhook/sheet), can also be entered manually, then reviewed. Statuses: pending, under review, more information required, approved, rejected. Approving creates **exactly one** member plus an invited account; rejecting preserves the record. |
 | **Members** | Three groups only (Senior, Junior, Support Members), voice sections, contact details, and protected guardian/emergency records for juniors. Member numbers like `CHR-2026-0001`. |
 | **Music library** | Songs, categories, learning stages, per-group assignments, progress history, lyrics (only when lawfully supplied), private audio resources, and video links to the official channel. |

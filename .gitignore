@@ -25,6 +25,11 @@ RENDER-ENV.txt
 render-env*.txt
 *-ENV.txt
 
+# The choir's full-resolution source photographs (hundreds of MB). The web-sized
+# copies that the site actually serves live in web/public/assets/gallery/choir
+# and ARE committed. See scripts/process-gallery-images.py.
+images/choir pics/
+
 .DS_Store
 Thumbs.db
 .idea/
