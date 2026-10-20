@@ -36,6 +36,7 @@ gold/charcoal premium interface in light and dark themes.
 | Module | Capability |
 | --- | --- |
 | **Public site** | Landing page with the choir's real logo and photographs, about, music highlights (official YouTube embeds), gallery, upcoming public events, contact, and the official application form link. |
+| **Our music (public)** | `/music` — the whole catalogue on one page, no sign-in, searchable and filterable, every performance playable in the official YouTube player on click. |
 | **Admissions** | Applications arrive from the Google Form (webhook/sheet), can also be entered manually, then reviewed. Statuses: pending, under review, more information required, approved, rejected. Approving creates **exactly one** member plus an invited account; rejecting preserves the record. |
 | **Members** | Three groups only (Senior, Junior, Support Members), voice sections, contact details, and protected guardian/emergency records for juniors. Member numbers like `CHR-2026-0001`. |
 | **Music library** | Songs, categories, learning stages, per-group assignments, progress history, lyrics (only when lawfully supplied), private audio resources, and video links to the official channel. |
@@ -334,6 +335,9 @@ Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
   back button closes the player and one video can be linked directly). Nothing is fetched from YouTube
   until somebody asks to watch, and only **approved** videos are ever playable: a discovered or
   rejected one keeps its cover and says so.
+- **Our music, on one public page.** `/music` shows the whole catalogue to anyone, without signing in,
+  with search and category filters and a click-to-play player. It is the same library the choir uses
+  internally, presented as the choir's own music rather than a link out to YouTube.
 - **Google Sheets (application register).** Applications arrive via the signed webhook
   (`POST /api/applications/webhook`, idempotent on `externalId`). When a signing secret is configured,
   each call must carry an **HMAC-SHA256 signature** of the request body (the raw secret is also

@@ -188,3 +188,49 @@ test("the public landing model carries the id a visitor's click needs", async ()
   const tainted = JSON.stringify(res.json)
   assert.ok(!tainted.includes("discovered"), "an unapproved video must not leak into the public model")
 })
+
+test("the public music page lists every playable song, and only playable ones", async () => {
+  const songId = makeSong("Umwuka Wera")
+  makeVideo({ youtubeId: "fffffffffff", title: "Umwuka Wera (official)", songId, isPrimary: 1 })
+  const silent = makeSong("Not Published Yet")
+  assert.ok(silent)
+  const unreviewed = makeSong("Awaiting Review")
+  makeVideo({ youtubeId: "ggggggggggg", title: "Not approved", songId: unreviewed, status: "discovered" })
+
+  const res = await api("GET", "/api/public/music")
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+
+  const titles = (res.json.songs as any[]).map((song) => song.title)
+  assert.ok(titles.includes("Umwuka Wera"), "a song with an approved video is in the public catalogue")
+  assert.ok(!titles.includes("Not Published Yet"), "a song with no video is not offered for playback")
+  assert.ok(!titles.includes("Awaiting Review"), "an unapproved video never reaches the public catalogue")
+
+  const song = (res.json.songs as any[]).find((row) => row.title === "Umwuka Wera")
+  assert.equal(song.youtubeVideoId, "fffffffffff", "the catalogue carries the id a click must play")
+  assert.equal(song.videoCount, 1)
+  assert.ok(!JSON.stringify(res.json).includes("discovered"), "no unapproved state leaks out")
+})
+
+test("the public music catalogue can be searched and filtered by category", async () => {
+  const res = await api("GET", "/api/public/music?search=Umwuka")
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+  assert.deepEqual((res.json.songs as any[]).map((song) => song.title), ["Umwuka Wera"])
+
+  const missing = await api("GET", "/api/public/music?search=zzzz-no-such-song")
+  assert.equal(missing.json.songs.length, 0)
+
+  // Only categories with something playable are offered, so the filter never
+  // presents an empty tab to a visitor.
+  const categories = res.json.categories as any[]
+  for (const category of categories) {
+    assert.ok(category.count >= 1, `category ${category.key} must have at least one song`)
+  }
+})
+
+test("the public music catalogue never exposes member or admin data", async () => {
+  const res = await api("GET", "/api/public/music")
+  const body = JSON.stringify(res.json)
+  for (const forbidden of ["password", "admin_notes", "created_by", "member_no", "reviewed_by", "phone"]) {
+    assert.ok(!body.includes(forbidden), `the public catalogue must not leak "${forbidden}"`)
+  }
+})

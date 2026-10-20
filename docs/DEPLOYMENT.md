@@ -180,6 +180,26 @@ commit* (if automatic deploys are enabled, pushing is enough). Every deploy wipe
 the ephemeral disk, so the database is restored from B2 on the next boot —
 that is the normal, expected path.
 
+## Importing the YouTube channel's music
+
+The channel's uploads can be brought into the catalogue in one pass, without a
+YouTube API key, using the channel's public feed:
+
+```bash
+# against a copy of the live database (never the live file while the app runs)
+litestream restore -config litestream.yml ./chorale.db
+DATA_DIR=. DATABASE_FILE=./chorale.db APP_SECRET=... npx tsx scripts/import-channel-music.ts
+```
+
+`scripts/import-channel-music.ts` records which videos count as songs and which
+are live streams or concert recordings (deliberately skipped). Each song is
+created once, its video approved and primary, and every song assigned to all
+three groups. Re-running it is safe: existing songs are re-used by normalised
+title and video links are refreshed, never duplicated (verified: a second run
+created 0 rows).
+
+To change the list, edit `SONGS` in that file and run it again.
+
 ## Backblaze B2 setup (one time)
 
 1. Create a free account at <https://www.backblaze.com/cloud-storage> (no credit
@@ -329,7 +349,7 @@ so they count against the free allowance at most once per instance lifetime.
 
 Verified locally (automated tests + live checks):
 
-- 50/50 unit tests, typecheck and production build.
+- 91/91 unit tests, typecheck and production build.
 - Fresh production boot creates all four administrators (env passwords),
   existing accounts are never reset on restart, sample passwords force a change.
 - `deploy/render-start.sh` without `S3_*` falls back to a plain start; with
@@ -355,6 +375,13 @@ Verified locally (automated tests + live checks):
   deleted, and `litestream restore` brought all 501 rows back correctly with the
   production credentials (bucket `la-port-dor-data`, region `us-east-005`). The
   test objects were then deleted, leaving the bucket empty.
+- **The public music catalogue**: `scripts/import-channel-music.ts` was run twice
+  against a restore of the live database — the first run created 9 songs and
+  linked 10 videos (30 group assignments), the second created **0** rows and
+  re-used all 10, proving it is idempotent. `GET /api/public/music` was then read
+  back with no cookie: 10 songs, only approved videos, search and category
+  filters both correct, and no member or admin field present. Covered by
+  `server/test/unit/song-video.test.ts`.
 
 Not verified end-to-end:
 

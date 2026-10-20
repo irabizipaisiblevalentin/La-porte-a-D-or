@@ -23,6 +23,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 ## Public (no auth)
 - `GET /health` -> `{ status, app, time }`. When the last boot could not restore the database from durable storage, `warning: "database_restore_failed"` and `restoreAlert: { reason: "restore_failed" | "replication_disabled" | "litestream_unavailable", at, detail }` are added; the web app shows a red banner for group administrators and the Chairman (see `docs/DEPLOYMENT.md`, Troubleshooting).
 - `GET /public/landing` -> `{ about, contact: { email, phone }, applicationFormUrl, logoUrl, heroImageUrl, galleryUrls: string[], upcomingEvents: [...], featuredSongs: [...], counts: { senior, junior, members, total } }`. Each `featuredSongs` entry carries `youtubeVideoId` (the best **approved** video) and `thumbnailUrl`, so a visitor's click can start playback on the site; only approved videos are ever exposed here.
+- `GET /public/music` -> `{ songs: [...], categories: [{ key, name, count }], totals: { songs, videos } }`, query `search,category`. The whole performance catalogue for the public music page (`/music`), with no sign-in. Every entry is an **active** song with an **approved** video, carrying `youtubeVideoId`, `videoTitle`, `thumbnailUrl`, `videoCount`, `categoryName` and language. `categories` lists only the categories actually in use, so the filter never offers an empty tab. No member, application, report or admin data appears in this model.
 - `GET /public/health` (alias of `/health`)
 
 ## Dashboard

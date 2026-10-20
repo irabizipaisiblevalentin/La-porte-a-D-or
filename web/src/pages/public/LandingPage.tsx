@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
 import { useQuery } from "../../api/hooks"
 import { APPLICATION_FORM_URL } from "../../components/layout/PublicLayout"
 import { Card, EmptyState, Spinner, VideoPlayerModal, VideoThumbnail } from "../../components/ui"
@@ -195,6 +196,11 @@ export function LandingPage() {
                 icon={<Music2 size={22} />}
               />
             )}
+          </div>
+          <div className="mt-8 flex justify-center">
+            <Link to="/music" className="btn btn-gold">
+              <PlayCircle size={16} /> See all our music
+            </Link>
           </div>
         </div>
       </section>

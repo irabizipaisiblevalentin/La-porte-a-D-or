@@ -5,6 +5,7 @@ import { AppShell } from "./components/layout/AppShell"
 import { ContactChairman } from "./components/layout/ContactChairman"
 import { PublicLayout } from "./components/layout/PublicLayout"
 import { LandingPage } from "./pages/public/LandingPage"
+import { PublicMusicPage } from "./pages/public/PublicMusicPage"
 import { LoginPage, AdminLoginPage } from "./pages/auth/LoginPage"
 import { SetupPage } from "./pages/auth/SetupPage"
 import { InvitePage } from "./pages/auth/InvitePage"
@@ -51,6 +52,14 @@ export function App() {
         element={
           <PublicLayout>
             <LandingPage />
+          </PublicLayout>
+        }
+      />
+      <Route
+        path="/music"
+        element={
+          <PublicLayout>
+            <PublicMusicPage />
           </PublicLayout>
         }
       />
