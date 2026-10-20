@@ -1,6 +1,7 @@
+import { useState } from "react"
 import { useQuery } from "../../api/hooks"
 import { APPLICATION_FORM_URL } from "../../components/layout/PublicLayout"
-import { Card, EmptyState, Spinner } from "../../components/ui"
+import { Card, EmptyState, Spinner, VideoPlayerModal, VideoThumbnail } from "../../components/ui"
 import { CalendarDays, Mail, Music2, Phone, PlayCircle, Users } from "lucide-react"
 
 interface LandingSong {
@@ -49,6 +50,8 @@ const PROVIDED_GALLERY = [
 
 export function LandingPage() {
   const { data, loading } = useQuery<LandingData>("/public/landing")
+  /** The featured video a visitor asked to watch; null when nothing is playing. */
+  const [watching, setWatching] = useState<LandingSong | null>(null)
   const gallery = data && data.galleryUrls.length > 0 ? data.galleryUrls : PROVIDED_GALLERY
   const heroImage = data?.heroImageUrl ?? "/assets/gallery/photo-1.png"
   const formUrl = data?.applicationFormUrl || APPLICATION_FORM_URL
@@ -156,19 +159,28 @@ export function LandingPage() {
                 {data.featuredSongs.map((song) => (
                   <Card key={song.id} className="overflow-hidden">
                     {song.youtubeVideoId ? (
-                      <div className="aspect-video w-full">
-                        <iframe
-                          className="h-full w-full"
-                          src={`https://www.youtube.com/embed/${song.youtubeVideoId}`}
+                      // A visitor's click is what starts playback, so nothing loads
+                      // from YouTube until they ask for it.
+                      <button
+                        type="button"
+                        className="group block w-full"
+                        onClick={() => setWatching(song)}
+                        aria-label={`Watch ${song.title}`}
+                      >
+                        <VideoThumbnail
+                          videoId={song.youtubeVideoId}
                           title={song.title}
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          loading="lazy"
+                          thumbnailUrl={song.thumbnailUrl}
                         />
-                      </div>
-                    ) : song.thumbnailUrl ? (
-                      <img src={song.thumbnailUrl} alt="" className="aspect-video w-full object-cover" />
-                    ) : null}
+                      </button>
+                    ) : (
+                      <VideoThumbnail
+                        videoId={null}
+                        title={song.title}
+                        thumbnailUrl={song.thumbnailUrl}
+                        playable={false}
+                      />
+                    )}
                     <div className="px-4 py-3">
                       <p className="font-medium">{song.title}</p>
                       <p className="muted text-xs">{song.categoryName ?? "Choir music"}</p>
@@ -280,6 +292,16 @@ export function LandingPage() {
           </Card>
         </div>
       </section>
+
+      {watching?.youtubeVideoId ? (
+        <VideoPlayerModal
+          open
+          onClose={() => setWatching(null)}
+          videoId={watching.youtubeVideoId}
+          title={watching.title}
+          meta={watching.categoryName ?? "Choir music"}
+        />
+      ) : null}
     </div>
   )
 }

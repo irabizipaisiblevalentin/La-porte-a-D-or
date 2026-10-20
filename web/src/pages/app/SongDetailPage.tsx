@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import {
   Archive,
   CalendarDays,
@@ -8,6 +8,7 @@ import {
   ListMusic,
   Music4,
   Pencil,
+  Play,
   Plus,
   Trash2,
   Upload,
@@ -34,6 +35,8 @@ import {
   Select,
   StatusBadge,
   Textarea,
+  VideoPlayerModal,
+  VideoThumbnail,
   useToast,
   humanize,
 } from "../../components/ui"
@@ -243,11 +246,6 @@ function toNullable(value: string): string | null {
   return trimmed ? trimmed : null
 }
 
-function embedUrl(videoId: string): string {
-  // Always the official YouTube embed player. We never download, rehost or proxy media.
-  return `https://www.youtube.com/embed/${videoId}`
-}
-
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -271,10 +269,29 @@ export function SongDetailPage() {
   const [archiving, setArchiving] = useState(false)
   const [lyricToDelete, setLyricToDelete] = useState<Lyric | null>(null)
   const [audioToDelete, setAudioToDelete] = useState<SongAudio | null>(null)
+  /** The video open in the player dialog, driven by `?watch=<id>` so the browser
+   *  back button closes it and a link to one video can be shared. */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const watchingVideoId = searchParams.get("watch")
+
+  const openVideo = (video: Video) => {
+    const next = new URLSearchParams(searchParams)
+    next.set("watch", video.id)
+    setSearchParams(next, { replace: true })
+  }
+
+  const clearWatchParam = () => {
+    if (!searchParams.has("watch")) return
+    const next = new URLSearchParams(searchParams)
+    next.delete("watch")
+    setSearchParams(next, { replace: true })
+  }
+
   const [deleting, setDeleting] = useState(false)
 
   const data = detail.data
   const song = data?.song
+  const watching = watchingVideoId ? data?.videos.find((video) => video.id === watchingVideoId) ?? null : null
 
   async function archiveSong() {
     if (!song) return
@@ -505,7 +522,7 @@ export function SongDetailPage() {
               <Youtube size={18} /> Videos
             </span>
           }
-          description="Played through the official YouTube embedded player. Choir media is never downloaded or re-hosted."
+          description="Click a video to watch it here in the official YouTube player — or open it on YouTube. Choir media is never downloaded or re-hosted."
           actions={
             canWrite ? (
               <Button size="sm" variant="outline" icon={<Link2 size={14} />} onClick={() => setLinkOpen(true)}>
@@ -536,16 +553,31 @@ export function SongDetailPage() {
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {data.videos.map((video) => (
                 <div key={video.id} className="flex flex-col gap-2">
-                  <div className="overflow-hidden rounded-xl border hairline">
-                    <iframe
-                      src={embedUrl(video.youtube_video_id)}
-                      title={video.title}
-                      className="aspect-video w-full"
-                      loading="lazy"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    />
-                  </div>
+                  {/* Only an approved video may be played; a rejected one keeps
+                      its cover but offers no player. */}
+                  {video.status === "approved" ? (
+                    <button
+                      type="button"
+                      onClick={() => openVideo(video)}
+                      className="group w-full overflow-hidden rounded-xl border hairline text-left"
+                      aria-label={`Watch ${video.title}`}
+                    >
+                      <VideoThumbnail
+                        videoId={video.youtube_video_id}
+                        title={video.title}
+                        thumbnailUrl={video.thumbnail_url}
+                      />
+                    </button>
+                  ) : (
+                    <div className="overflow-hidden rounded-xl border hairline">
+                      <VideoThumbnail
+                        videoId={null}
+                        title={video.title}
+                        thumbnailUrl={video.thumbnail_url}
+                        playable={false}
+                      />
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={video.status} />
                     {video.is_primary ? <Badge tone="gold">Primary</Badge> : null}
@@ -555,15 +587,36 @@ export function SongDetailPage() {
                   <p className="muted text-xs">
                     {orDash(video.channel_title)} · {formatDate(video.published_at)}
                   </p>
-                  <a href={video.url} target="_blank" rel="noreferrer noopener" className="link text-xs">
-                    Watch on YouTube
-                  </a>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {video.status === "approved" ? (
+                      <Button size="sm" variant="outline" icon={<Play size={13} fill="currentColor" />} onClick={() => openVideo(video)}>
+                        Watch
+                      </Button>
+                    ) : null}
+                    <a href={video.url} target="_blank" rel="noreferrer noopener" className="link text-xs">
+                      Watch on YouTube
+                    </a>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </CardBody>
       </Card>
+
+      {watching ? (
+        <VideoPlayerModal
+          open
+          onClose={() => {
+            clearWatchParam()
+          }}
+          videoId={watching.youtube_video_id}
+          title={watching.title}
+          meta={[watching.channel_title, formatDate(watching.published_at)].filter(Boolean).join(" · ")}
+          url={watching.url}
+          footer={watching.is_primary ? <Badge tone="gold">Primary video</Badge> : undefined}
+        />
+      ) : null}
 
       {/* Lyrics */}
       <Card>

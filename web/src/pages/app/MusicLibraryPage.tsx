@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
-import { Library, Plus, Search } from "lucide-react"
+import { Library, Play, Plus, Search } from "lucide-react"
 import { api, ApiError, toQuery } from "../../api/client"
 import { useQuery, useDebounced } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
@@ -19,6 +19,8 @@ import {
   Select,
   StatusBadge,
   Textarea,
+  VideoPlayerModal,
+  VideoThumbnail,
   useToast,
   type Column,
 } from "../../components/ui"
@@ -73,6 +75,10 @@ interface Song {
   category_name?: string | null
   stage_key?: string | null
   stage_name?: string | null
+  /** Playable video for this song, when one is linked and approved. */
+  primary_video_id?: string | null
+  thumbnail_url?: string | null
+  video_count?: number
   // Only present if the server ever inlines assignments on the list payload.
   groups?: { id: string; key: string; name: string }[]
 }
@@ -113,6 +119,8 @@ export function MusicLibraryPage() {
   const [status, setStatus] = useState("")
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
+  /** The song whose video is playing in the dialog; null when nothing is playing. */
+  const [watching, setWatching] = useState<Song | null>(null)
 
   useEffect(() => {
     setPage(1)
@@ -127,11 +135,27 @@ export function MusicLibraryPage() {
       key: "title",
       header: "Title",
       render: (row) => (
-        <div className="min-w-[12rem]">
-          <p className="font-medium">{row.title}</p>
-          <p className="muted text-xs">
-            {row.composer ? `Composer: ${row.composer}` : row.arranger ? `Arranger: ${row.arranger}` : "Composer not recorded"}
-          </p>
+        <div className="flex min-w-[14rem] items-center gap-3">
+          <VideoThumbnail
+            videoId={row.primary_video_id ?? null}
+            title={row.title}
+            thumbnailUrl={row.thumbnail_url ?? null}
+          />
+          <div className="min-w-0">
+            <p className="truncate font-medium">{row.title}</p>
+            <p className="muted truncate text-xs">
+              {row.composer ? `Composer: ${row.composer}` : row.arranger ? `Arranger: ${row.arranger}` : "Composer not recorded"}
+            </p>
+            {row.primary_video_id ? (
+              <p className="muted truncate text-xs">
+                {row.video_count && row.video_count > 1
+                  ? `${row.video_count} videos · press play to watch`
+                  : "Press play to watch"}
+              </p>
+            ) : (
+              <p className="muted truncate text-xs">No video linked yet</p>
+            )}
+          </div>
         </div>
       ),
     },
@@ -149,6 +173,27 @@ export function MusicLibraryPage() {
       key: "status",
       header: "Status",
       render: (row) => <StatusBadge status={row.status} />,
+    },
+    {
+      key: "watch",
+      header: "",
+      align: "right",
+      render: (row) =>
+        row.primary_video_id ? (
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<Play size={14} fill="currentColor" />}
+            onClick={(event) => {
+              event.stopPropagation()
+              setWatching(row)
+            }}
+          >
+            Watch
+          </Button>
+        ) : (
+          <span className="muted text-xs">—</span>
+        ),
     },
     {
       key: "groups",
@@ -304,7 +349,7 @@ export function MusicLibraryPage() {
                   </Button>
                 ) : undefined
               }
-              caption="Select a row to open the song."
+              caption="Select a row to open the song, or press play to watch its video here."
             />
             <Pagination
               page={songs.data?.page ?? page}
@@ -315,6 +360,27 @@ export function MusicLibraryPage() {
           </CardBody>
         </Card>
       )}
+
+      {watching?.primary_video_id ? (
+        <VideoPlayerModal
+          open
+          onClose={() => setWatching(null)}
+          videoId={watching.primary_video_id}
+          title={watching.title}
+          meta={[
+            watching.composer ? `Composer: ${watching.composer}` : watching.arranger ? `Arranger: ${watching.arranger}` : null,
+            watching.category_name,
+            watching.video_count && watching.video_count > 1 ? `${watching.video_count} videos — open the song for the rest` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          footer={
+            <Button variant="ghost" onClick={() => navigate(`/app/music/${watching.id}`)}>
+              Open song
+            </Button>
+          }
+        />
+      ) : null}
 
       {creating ? (
         <NewSongModal

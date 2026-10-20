@@ -31,6 +31,8 @@ interface FeaturedSong {
   title: string
   category: string | null
   thumbnailUrl: string | null
+  /** The YouTube id to play when the card is clicked; null when only a still exists. */
+  youtubeVideoId: string | null
 }
 
 // GET /public/landing — the only public read model. No member, report or admin data.
@@ -84,8 +86,19 @@ publicRouter.get("/landing", (_req, res) => {
     title: string
     category: string | null
     thumbnail_url: string | null
+    video_id: string | null
   }>(
     `SELECT s.id, s.title, sc.name AS category,
+            COALESCE(
+              -- The playable video itself, so a card can start playback on click
+              -- instead of only showing a still picture.
+              (SELECT v.youtube_video_id FROM videos v
+                WHERE v.song_id = s.id AND v.status = 'approved' AND v.is_primary = 1
+                ORDER BY v.created_at DESC LIMIT 1),
+              (SELECT v.youtube_video_id FROM videos v
+                WHERE v.song_id = s.id AND v.status = 'approved'
+                ORDER BY v.created_at DESC LIMIT 1)
+            ) AS video_id,
             COALESCE(
               (SELECT v.thumbnail_url FROM videos v
                 WHERE v.song_id = s.id AND v.status = 'approved' AND v.is_primary = 1
@@ -126,6 +139,7 @@ publicRouter.get("/landing", (_req, res) => {
     title: row.title,
     category: row.category,
     thumbnailUrl: row.thumbnail_url,
+    youtubeVideoId: row.video_id,
   }))
 
   const countFor = (key: string): number => groupCounts.find((row) => row.group_key === key)?.c ?? 0

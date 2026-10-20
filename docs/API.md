@@ -22,7 +22,7 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 
 ## Public (no auth)
 - `GET /health` -> `{ status, app, time }`. When the last boot could not restore the database from durable storage, `warning: "database_restore_failed"` and `restoreAlert: { reason: "restore_failed" | "replication_disabled" | "litestream_unavailable", at, detail }` are added; the web app shows a red banner for group administrators and the Chairman (see `docs/DEPLOYMENT.md`, Troubleshooting).
-- `GET /public/landing` -> `{ about, contact: { email, phone }, applicationFormUrl, logoUrl, heroImageUrl, galleryUrls: string[], upcomingEvents: [...], featuredSongs: [...], counts: { senior, junior, members, total } }`
+- `GET /public/landing` -> `{ about, contact: { email, phone }, applicationFormUrl, logoUrl, heroImageUrl, galleryUrls: string[], upcomingEvents: [...], featuredSongs: [...], counts: { senior, junior, members, total } }`. Each `featuredSongs` entry carries `youtubeVideoId` (the best **approved** video) and `thumbnailUrl`, so a visitor's click can start playback on the site; only approved videos are ever exposed here.
 - `GET /public/health` (alias of `/health`)
 
 ## Dashboard
@@ -82,7 +82,10 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 
 ## Songs / music library
 - `GET /songs/taxonomy` -> `{ categories, stages, groups }`
-- `GET /songs` `[perm: music.read]` query `search,categoryId,stageId,groupId,status,page`
+- `GET /songs` `[perm: music.read]` query `search,categoryId,stageId,groupId,status,page` — every row also
+  carries `primary_video_id`, `thumbnail_url` and `video_count` (the best **approved** video: primary
+  first, then newest), so the list can start playback on click without a request per row. A song with
+  no approved video reports `null` rather than pointing at something that cannot play.
 - `POST /songs` `[perm: music.write]`
 - `GET /songs/:id` `[perm: music.read]` -> `{ song, videos, lyrics, audio, progress, assignments, events }`
 - `PATCH /songs/:id` `[perm: music.write]`

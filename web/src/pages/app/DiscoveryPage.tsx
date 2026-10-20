@@ -32,6 +32,8 @@ import {
   Select,
   StatusBadge,
   Textarea,
+  VideoPlayerModal,
+  VideoThumbnail,
   useToast,
   humanize,
   type Column,
@@ -172,6 +174,8 @@ export function DiscoveryPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [reviewVideo, setReviewVideo] = useState<Video | null>(null)
   const [rejectVideo, setRejectVideo] = useState<Video | null>(null)
+  /** The queue video open in the preview player; null when nothing is playing. */
+  const [watchingVideo, setWatchingVideo] = useState<Video | null>(null)
   const [rejecting, setRejecting] = useState(false)
 
   async function rejectVideoNow() {
@@ -197,18 +201,22 @@ export function DiscoveryPage() {
       header: "Video",
       render: (row) => (
         <div className="flex min-w-[14rem] items-center gap-3">
-          {row.thumbnail_url ? (
-            <img src={row.thumbnail_url} alt="" className="h-12 w-20 shrink-0 rounded-lg object-cover" />
-          ) : (
-            <span className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border hairline">
-              <Youtube size={18} className="opacity-50" />
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={() => setWatchingVideo(row)}
+            className="group w-20 shrink-0 overflow-hidden rounded-lg border hairline"
+            aria-label={`Preview ${row.title}`}
+          >
+            <VideoThumbnail videoId={row.youtube_video_id} title={row.title} thumbnailUrl={row.thumbnail_url} />
+          </button>
           <div className="min-w-0">
             <p className="truncate font-medium">{row.title}</p>
             <p className="muted truncate text-xs">
               {orDash(row.channel_title)} · {formatDate(row.published_at)}
             </p>
+            <button type="button" className="link text-xs" onClick={() => setWatchingVideo(row)}>
+              Preview
+            </button>
           </div>
         </div>
       ),
@@ -242,6 +250,9 @@ export function DiscoveryPage() {
           <a href={row.url} target="_blank" rel="noreferrer noopener" className="btn btn-ghost btn-sm" aria-label="Open on YouTube">
             <Youtube size={15} />
           </a>
+          <Button size="sm" variant="ghost" icon={<Play size={14} fill="currentColor" />} onClick={() => setWatchingVideo(row)}>
+            Play
+          </Button>
           {canWrite ? (
             <>
               <Button size="sm" variant="outline" onClick={() => setReviewVideo(row)}>
@@ -431,6 +442,30 @@ export function DiscoveryPage() {
         onConfirm={() => void rejectVideoNow()}
         onCancel={() => setRejectVideo(null)}
       />
+
+      {watchingVideo ? (
+        <VideoPlayerModal
+          open
+          onClose={() => setWatchingVideo(null)}
+          videoId={watchingVideo.youtube_video_id}
+          title={watchingVideo.title}
+          meta={[watchingVideo.channel_title, formatDate(watchingVideo.published_at)].filter(Boolean).join(" · ")}
+          url={watchingVideo.url}
+          footer={
+            canWrite ? (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setReviewVideo(watchingVideo)
+                  setWatchingVideo(null)
+                }}
+              >
+                Review this video
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
     </div>
   )
 }

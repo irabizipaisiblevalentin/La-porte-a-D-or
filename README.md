@@ -328,6 +328,12 @@ Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
   rehosted or proxied**, and lyrics are shown only when lawfully provided. Until an API key is added,
   `/api/discovery/status` reports `apiConfigured: false`, channel search returns `configured: false`
   with an empty list, and **manual URL import** still works.
+- **Watching a video.** Every place a video appears — the Music Library list, the song page, the
+  Discovery review queue and the public highlights — shows its cover with a play badge, and a click
+  opens the **official YouTube player** in a dialog on the site (`?watch=<id>` on a song page, so the
+  back button closes the player and one video can be linked directly). Nothing is fetched from YouTube
+  until somebody asks to watch, and only **approved** videos are ever playable: a discovered or
+  rejected one keeps its cover and says so.
 - **Google Sheets (application register).** Applications arrive via the signed webhook
   (`POST /api/applications/webhook`, idempotent on `externalId`). When a signing secret is configured,
   each call must carry an **HMAC-SHA256 signature** of the request body (the raw secret is also
@@ -337,10 +343,11 @@ Full setup steps are in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
   copy-safe file at [`docs/apps-script/Code.gs`](docs/apps-script/Code.gs), with a setup and
   troubleshooting guide in [`docs/apps-script/README.md`](docs/apps-script/README.md) and the
   integration explained in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
-- **Email / SMS.** *Not configured.* In-app notifications are real, but external email is **not**
-  sent. Approving an application therefore generates the member's username and password on the spot
-  for the administrator to pass on, and password-reset links are surfaced to the administrator to
-  share manually — the UI states this plainly.
+- **Email / SMS.** Credential e-mails are delivered through the choir's own **Apps Script** mail web app
+  (or SMTP) once configured; **SMS** has no free server-side gateway, so the member record offers
+  WhatsApp / SMS / copy buttons that open the administrator's own messaging app with the message already
+  written. Password-reset links are surfaced to the administrator whenever e-mail is not configured —
+  the UI states which of the two it is.
 
 ---
 

@@ -96,7 +96,28 @@ interface VideoRow {
 }
 
 const SONG_SELECT = `SELECT s.*, c.key AS category_key, c.name AS category_name,
-                            l.key AS stage_key, l.name AS stage_name
+                            l.key AS stage_key, l.name AS stage_name,
+                            -- The playable video and its cover, so a list row can
+                            -- start watching without opening the song first. Primary
+                            -- wins, then the newest approved video.
+                            COALESCE(
+                              (SELECT v.youtube_video_id FROM videos v
+                                WHERE v.song_id = s.id AND v.status = 'approved' AND v.is_primary = 1
+                                ORDER BY v.created_at DESC LIMIT 1),
+                              (SELECT v.youtube_video_id FROM videos v
+                                WHERE v.song_id = s.id AND v.status = 'approved'
+                                ORDER BY v.created_at DESC LIMIT 1)
+                            ) AS primary_video_id,
+                            COALESCE(
+                              (SELECT v.thumbnail_url FROM videos v
+                                WHERE v.song_id = s.id AND v.status = 'approved' AND v.is_primary = 1
+                                  AND v.thumbnail_url IS NOT NULL
+                                ORDER BY v.created_at DESC LIMIT 1),
+                              (SELECT v.thumbnail_url FROM videos v
+                                WHERE v.song_id = s.id AND v.status = 'approved' AND v.thumbnail_url IS NOT NULL
+                                ORDER BY v.created_at DESC LIMIT 1)
+                            ) AS thumbnail_url,
+                            (SELECT COUNT(*) FROM videos v WHERE v.song_id = s.id AND v.status = 'approved') AS video_count
                        FROM songs s
                        LEFT JOIN song_categories c ON c.id = s.category_id
                        LEFT JOIN learning_stages l ON l.id = s.learning_stage_id`
