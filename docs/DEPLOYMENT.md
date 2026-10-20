@@ -349,6 +349,40 @@ Chairman's bell. See *Troubleshooting* below for what to do next.
 - **Prefer a failed deploy over an empty site** — set `REQUIRE_RESTORE=1` in the
   Render environment. The start script then exits instead of serving an empty
   database, so Render keeps the previous instance serving instead of replacing it.
+- **The site boots looking healthy but one page returns "Something went wrong"
+  (a `500`), while everything else works** — the database **restored but is
+  damaged**. A torn write in the bucket left a table page unreadable, so counts
+  and other tables still work but *reading rows* from one table fails. This is why
+  the public music and landing pages broke while login and members kept working:
+  a malformed `songs` page.
+
+  The app now catches this at boot. Look for:
+
+  - `status: "degraded"` and `warning: "database_damaged"` on `GET /api/health`,
+    with `integrityProblems` naming the table(s) that failed;
+  - a `DATA INTEGRITY WARNING: The database restored but is damaged` block in the
+    boot log;
+  - a `system.database_damaged` entry in the audit log and a notification in the
+    Chairman's bell.
+
+  **Recover by restoring a clean point — do not write to the damaged database**
+  (editing over damaged pages makes recovery harder):
+
+  1. In the Render dashboard, open the service → **Environment**, and note the
+     `S3_*` values.
+  2. Find a **timestamp before the damage** — the last boot that served every page
+     correctly. Restore from it with
+     `litestream restore -timestamp 2026-10-20T12:00:00Z -config <config> <file>`,
+     or delete the local database file and restart the service so the boot script
+     restores the **latest** generation (use this only once replication has
+     written a healthy generation since the damage).
+  3. Confirm `/api/health` reports `status: "ok"` again, then reopen the pages that
+     were failing.
+
+  The probe lives in `server/src/services/data-integrity.ts`
+  (`checkDatabaseIntegrity`), and is asserted by
+  `server/test/unit/database-integrity.test.ts`.
+
 - **Are you warned about a "database backup tool is missing" banner?** — the
   Litestream download failed at boot, so nothing is being backed up. Redeploy
   (the binary is cached per instance) and check the logs for the GitHub download

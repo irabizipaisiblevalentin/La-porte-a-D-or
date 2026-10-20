@@ -3,7 +3,7 @@ import { config, restoreAlert } from "./config.js"
 import { migrate } from "./db/index.js"
 import { seed } from "./db/seed.js"
 import { seedDefaultAccounts } from "./db/seed-admins.js"
-import { reportRestoreAlert } from "./services/data-integrity.js"
+import { reportRestoreAlert, checkDatabaseIntegrity, reportIntegrityProblems } from "./services/data-integrity.js"
 import { sessionMaintenance } from "./auth/session.js"
 import { rateLimitMaintenance } from "./middleware/rate-limit.js"
 import { clearExpiredLockouts, publishDueAnnouncements } from "./services/scheduler.js"
@@ -42,6 +42,15 @@ function bootstrapAdministrators(): void {
 }
 
 bootstrapAdministrators()
+
+/**
+ * A database that restored but is damaged must not pass unnoticed either.
+ *
+ * The probe reads a row from each critical table — the same path a page uses —
+ * so a torn page in the bucket is caught at boot instead of surfacing later as
+ * an unexplained 500 on whichever page touches the broken table.
+ */
+reportIntegrityProblems(checkDatabaseIntegrity())
 
 /** A failed restore must never pass unnoticed — log it, audit it, ring the Chairman's bell. */
 reportRestoreAlert(restoreAlert)

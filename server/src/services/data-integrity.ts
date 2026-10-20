@@ -73,3 +73,125 @@ export function reportRestoreAlert(alert: RestoreAlert | null): void {
     console.error("[setup] could not report the restore warning:", error)
   }
 }
+
+/**
+ * Startup integrity probe.
+ *
+ * A replica can restore "successfully" and still be unusable: a torn write in
+ * the bucket leaves a database whose control structures look fine but whose
+ * table pages are damaged. The app then boots looking healthy, and the damage
+ * surfaces much later as a 500 on whichever page happens to read the broken
+ * table — exactly what a malformed `songs` page did to the public music page and
+ * the landing page.
+ *
+ * `PRAGMA integrity_check` alone is not enough: it can report "ok" for damage
+ * that only appears when rows are actually scanned. So each critical table is
+ * probed by reading a row through the same path a page would use, and any
+ * failure is reported as loudly as a failed restore.
+ */
+const PROBE_TABLES = [
+  "songs",
+  "videos",
+  "song_group_assignments",
+  "members",
+  "users",
+  "applications",
+  "events",
+] as const
+
+export interface IntegrityProblem {
+  table: string
+  message: string
+}
+
+/**
+ * What the startup probe found, kept here so `GET /api/health` can report it
+ * without re-scanning the tables on every request.
+ */
+const integrityProblems: IntegrityProblem[] = []
+
+/** The problems found at boot; empty on a healthy database. */
+export function reportedIntegrityProblems(): readonly IntegrityProblem[] {
+  return integrityProblems
+}
+
+/** Reads one row from each critical table; returns what broke, if anything. */
+export function checkDatabaseIntegrity(): IntegrityProblem[] {
+  const problems: IntegrityProblem[] = []
+
+  try {
+    const result = one<{ integrity_check: string }>("PRAGMA integrity_check")
+    const verdict = result?.integrity_check ?? ""
+    if (verdict && verdict !== "ok") {
+      problems.push({ table: "(whole database)", message: verdict })
+    }
+  } catch (error) {
+    problems.push({ table: "(whole database)", message: error instanceof Error ? error.message : String(error) })
+  }
+
+  for (const table of PROBE_TABLES) {
+    try {
+      // A real scan of the table's pages, not just a count from an index.
+      all(`SELECT * FROM ${table} LIMIT 1`)
+    } catch (error) {
+      problems.push({ table, message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  return problems
+}
+
+/** Logs, audits and rings the bell about a database that restored but is damaged. */
+export function reportIntegrityProblems(problems: IntegrityProblem[]): void {
+  if (problems.length === 0) return
+  integrityProblems.length = 0
+  integrityProblems.push(...problems)
+
+  const headline = "The database restored but is damaged — some pages cannot be read"
+  const summary = problems.map((problem) => `${problem.table}: ${problem.message}`).join(" | ")
+
+  console.error(
+    [
+      "",
+      "##########################################################################",
+      `# DATA INTEGRITY WARNING: ${headline}`,
+      ...problems.map((problem) => `#   ${problem.table}: ${problem.message}`),
+      "# The app is running, but the database is NOT safe to write to.",
+      "# Restore a clean point from the bucket (see docs/DEPLOYMENT.md) before",
+      "# changing anything: writing over damaged pages makes recovery harder.",
+      "##########################################################################",
+      "",
+    ].join("\n"),
+  )
+
+  try {
+    // One report per database, so a restart of the same damaged file does not
+    // ring the bell repeatedly.
+    if (one<{ id: string }>("SELECT id FROM audit_logs WHERE action = 'system.database_damaged' LIMIT 1")) return
+
+    recordAudit({
+      action: "system.database_damaged",
+      entityType: "system",
+      summary: headline,
+      detail: { problems },
+    })
+
+    const chairmen = all<{ id: string }>(
+      `SELECT u.id FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+        WHERE ur.role_id = 'role_chairman' AND u.status = 'active'`,
+    )
+    notifyMany(
+      chairmen.map((chairman) => ({
+        userId: chairman.id,
+        type: "system",
+        title: headline,
+        body: `${summary} Restore a clean point before changing anything.`,
+        link: "/app/account",
+      })),
+    )
+  } catch (error) {
+    // The database is damaged; auditing it may itself fail. Never let that stop the boot.
+    console.error("[integrity] could not record the damage report:", error)
+  }
+}

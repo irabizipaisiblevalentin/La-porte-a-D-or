@@ -3,6 +3,7 @@ import path from "node:path"
 import cookieParser from "cookie-parser"
 import express, { type Express, type Request } from "express"
 import { config, publicStorageDir, restoreAlert, webDistDir } from "./config.js"
+import { reportedIntegrityProblems } from "./services/data-integrity.js"
 import { attachAuth } from "./middleware/auth.js"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js"
 import { generalRateLimit } from "./middleware/rate-limit.js"
@@ -53,13 +54,16 @@ export function createApp(): Express {
   app.use(attachAuth)
 
   app.get("/api/health", (_req, res) => {
-    // `warning` is a machine-readable flag; `restoreAlert` carries the detail.
-    // Both are absent on a healthy boot, so existing callers are unaffected.
+    // `warning` is a machine-readable flag; `restoreAlert`/`integrityProblems`
+    // carry the detail. All are absent on a healthy boot, so existing callers
+    // are unaffected.
+    const damaged = reportedIntegrityProblems()
     res.json({
-      status: "ok",
+      status: damaged.length > 0 ? "degraded" : "ok",
       app: config.appName,
       time: new Date().toISOString(),
       ...(restoreAlert ? { warning: "database_restore_failed", restoreAlert } : {}),
+      ...(damaged.length > 0 ? { warning: "database_damaged", integrityProblems: damaged } : {}),
     })
   })
 
