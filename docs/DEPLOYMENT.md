@@ -112,6 +112,8 @@ iPad, the site must be added to the Home Screen first (iOS 16.4+).
 | `LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL` | Optional, defaults `15m`/`1h`/`6h` — compaction windows (each run costs listing + upload calls). |
 | `LITESTREAM_SNAPSHOT_INTERVAL` | Optional, default `24h` — how often a full copy of the database is written. |
 | `REQUIRE_RESTORE` | Optional. `1` makes `deploy/render-start.sh` **stop** instead of starting on an unrestored (empty) database when the bucket is unreachable. The app then never serves wrong data; Render keeps the previous instance up. Default: start and warn loudly. |
+| `RESTORE_TIMESTAMP` | Optional. Set to a point in time (e.g. `2026-10-20T13:00:00Z`) to restore **that** generation instead of the newest — the recovery step when the latest one is damaged. A pinned restore that fails **stops the deploy** rather than overwriting the bucket with an empty database. Remove it once `/api/health` reports `status: "ok"`. |
+| `DATABASE_FILE` / `DATA_DIR` | Optional. Where `chorale.db` lives. Default `server/data/chorale.db`. |
 
 With `S3_*` set the server also **mirrors every upload** into the bucket under
 `S3_PREFIX`, and reads it back when the local copy is gone — which is the normal
@@ -371,17 +373,20 @@ Chairman's bell. See *Troubleshooting* below for what to do next.
   1. In the Render dashboard, open the service → **Environment**, and note the
      `S3_*` values.
   2. Find a **timestamp before the damage** — the last boot that served every page
-     correctly. Restore from it with
-     `litestream restore -timestamp 2026-10-20T12:00:00Z -config <config> <file>`,
-     or delete the local database file and restart the service so the boot script
-     restores the **latest** generation (use this only once replication has
-     written a healthy generation since the damage).
+     correctly. Then add an environment variable **`RESTORE_TIMESTAMP`** set to
+     that time (e.g. `2026-10-20T13:00:00Z`) and redeploy. The boot script
+     restores *that* point instead of the newest one — no tool needed on your own
+     machine, and a pinned restore that fails **stops the deploy** rather than
+     overwriting the bucket with an empty database.
+     Delete `RESTORE_TIMESTAMP` once `/api/health` reports `status: "ok"`, so
+     later redeploys go back to restoring the latest generation.
   3. Confirm `/api/health` reports `status: "ok"` again, then reopen the pages that
      were failing.
 
   The probe lives in `server/src/services/data-integrity.ts`
   (`checkDatabaseIntegrity`), and is asserted by
-  `server/test/unit/database-integrity.test.ts`.
+  `server/test/unit/database-integrity.test.ts` and
+  `server/test/unit/duplicate-page-probe.test.ts`.
 
 - **Are you warned about a "database backup tool is missing" banner?** — the
   Litestream download failed at boot, so nothing is being backed up. Redeploy

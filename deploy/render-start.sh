@@ -121,16 +121,37 @@ LITESTREAM_SNAPSHOT_INTERVAL="${LITESTREAM_SNAPSHOT_INTERVAL:-24h}" # 24h defaul
 chmod 600 "$LITESTREAM_CONFIG"
 
 # --- Restore, then replicate -------------------------------------------------
+# RESTORE_TIMESTAMP pins the restore to a point in time. Set it when the newest
+# generation is damaged (see docs/DEPLOYMENT.md → "restored but is damaged") and
+# the boot script restores from before the damage instead of replicating it. Any
+# timestamp Litestream accepts works: 2026-10-20T12:00:00Z, or a relative one like
+# 2026-10-20T11:00:00.
+#
+# Restoring a pinned point into a file that already exists would be refused by
+# Litestream, so when a timestamp is set the local database is moved aside first.
+RESTORE_TIMESTAMP="${RESTORE_TIMESTAMP:-}"
+if [ -n "$RESTORE_TIMESTAMP" ] && [ -f "$DATABASE_FILE" ]; then
+  echo "[render-start] RESTORE_TIMESTAMP=${RESTORE_TIMESTAMP} — moving the current database aside so the pinned point can be restored."
+  mv "$DATABASE_FILE" "${DATABASE_FILE}.replaced-$(date +%Y%m%d%H%M%S)"
+fi
+
 if [ -f "$DATABASE_FILE" ]; then
   echo "[render-start] local database present — skipping restore."
 else
   # Clear any marker from an earlier boot on this disk; it is rewritten below if
   # this restore fails, so the app knows to complain loudly.
   clear_restore_marker
-  echo "[render-start] restoring database from s3://${S3_BUCKET}/${LITESTREAM_DB_PREFIX} (if a replica exists)…"
+  if [ -n "$RESTORE_TIMESTAMP" ]; then
+    echo "[render-start] restoring database from s3://${S3_BUCKET}/${LITESTREAM_DB_PREFIX} at ${RESTORE_TIMESTAMP}…"
+    RESTORE_ARGS="-timestamp ${RESTORE_TIMESTAMP}"
+  else
+    echo "[render-start] restoring database from s3://${S3_BUCKET}/${LITESTREAM_DB_PREFIX} (if a replica exists)…"
+    RESTORE_ARGS="-if-replica-exists"
+  fi
   attempt=1
   restore_failed=0
-  until "$LITESTREAM_BIN" restore -if-replica-exists -config "$LITESTREAM_CONFIG" "$DATABASE_FILE"; do
+  # shellcheck disable=SC2086 # RESTORE_ARGS is intentionally word-split.
+  until "$LITESTREAM_BIN" restore $RESTORE_ARGS -config "$LITESTREAM_CONFIG" "$DATABASE_FILE"; do
     if [ "$attempt" -ge 5 ]; then
       restore_failed=1
       break
@@ -140,6 +161,14 @@ else
     sleep 10
   done
   if [ "$restore_failed" = "1" ]; then
+    if [ -n "$RESTORE_TIMESTAMP" ]; then
+      # A pinned restore that failed must NOT fall through to an empty database:
+      # replicating an empty file over the bucket would destroy the very history
+      # the timestamp was chosen to recover. Stop here and keep the old instance
+      # serving — see REQUIRE_RESTORE in docs/DEPLOYMENT.md.
+      echo "[render-start] FATAL: could not restore at ${RESTORE_TIMESTAMP}. Refusing to start on an empty database, because replication would overwrite the bucket history. Pick a different RESTORE_TIMESTAMP and redeploy."
+      exit 1
+    fi
     # An empty database is about to be created. Say so in the logs AND to the
     # app (marker + env), because silently serving an empty database is exactly
     # how real member records disappeared unnoticed.
