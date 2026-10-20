@@ -49,6 +49,7 @@ import { AuditPage } from "./pages/app/AuditPage"
 import { SearchPage } from "./pages/app/SearchPage"
 import { AccountsPage } from "./pages/app/AccountsPage"
 import { SettingsPage } from "./pages/app/SettingsPage"
+import { CheckinPage } from "./pages/CheckinPage"
 
 function guarded(permission: string, element: ReactNode): ReactNode {
   return <RequirePermission permission={permission}>{element}</RequirePermission>
@@ -116,6 +117,10 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/admin" element={<AdminLoginPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
+      {/* What a scanned entrance pass opens. Reachable signed out, because the QR
+          is scanned by a phone that may have no session — the page proves whose
+          pass it is, and only a signed-in steward can admit anyone. */}
+      <Route path="/checkin/:token" element={<CheckinPage />} />
       <Route path="/setup" element={<SetupPage />} />
       <Route path="/invite/:token" element={<InvitePage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />

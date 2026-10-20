@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Link2, Pencil, Plus, Trash2, UserPlus } from "lucide-react"
+import { ArrowLeft, Link2, Pencil, Plus, QrCode, Trash2, UserPlus } from "lucide-react"
 import { api, toQuery } from "../../api/client"
 import { useDebounced, useMutation, useQuery } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
@@ -25,6 +25,17 @@ import {
   useToast,
   type Column,
 } from "../../components/ui"
+import {
+  EventContributionPanel,
+  type CheckinRow,
+  type ContributionRow,
+  type ContributionSummary,
+  type PassRow,
+} from "./EventContributionPanel"
+import { PassQr } from "./PassQr"
+import { MyRsvp } from "./MyRsvp"
+import { EventPhotoGallery, type EventPhoto } from "./EventPhotoGallery"
+import { EventRollCall } from "./EventRollCall"
 
 const EVENT_TYPES = [
   "rehearsal",
@@ -54,6 +65,11 @@ interface EventRow {
   status: string
   report: string | null
   is_public: number
+  audience_public: number
+  requires_contribution: number
+  contribution_amount: number | null
+  contribution_note: string | null
+  contribution_due_date: string | null
   created_by: string | null
   created_at: string
   updated_at: string
@@ -65,6 +81,9 @@ interface EventParticipantRow {
   member_id: string
   role: string | null
   added_at: string
+  rsvp: string | null
+  rsvp_at: string | null
+  rsvp_note: string | null
   full_name: string
   member_no: string
   group_id: string
@@ -79,10 +98,23 @@ interface EventSongRow {
   status: string
 }
 
+interface AudienceGroup {
+  id: string
+  key: string
+  name: string
+}
+
 interface DetailResponse {
   event: EventRow
+  audience: AudienceGroup[]
   participants: EventParticipantRow[]
   songs: EventSongRow[]
+  contribution: ContributionSummary
+  contributions: ContributionRow[]
+  passes: PassRow[]
+  myPass: PassRow | null
+  checkins: CheckinRow[]
+  photos: EventPhoto[]
 }
 
 interface MemberRow {
@@ -156,6 +188,12 @@ function formatTimeRange(start: string | null, end: string | null): string {
   return start ?? end ?? "—"
 }
 
+/** Whole Rwandan francs, with thin spaces so a figure is readable at a glance. */
+function formatAmount(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—"
+  return `${value.toLocaleString("en-US").replace(/,/g, " ")} FRW`
+}
+
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -167,11 +205,19 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 
 export function EventDetailPage() {
   const { id = "" } = useParams()
-  const { can } = useAuth()
+  const { can, hasRole, user } = useAuth()
   const toast = useToast()
   const canWrite = can("events.write")
   const canReadMembers = can("member.read")
   const canReadMusic = can("music.read")
+  // Who an event is for, and what it costs, is the Events Coordinator's call —
+  // the Chairman oversees everything. A group administrator runs their own events
+  // but does not re-aim them.
+  const canManage = can("events.manage")
+  const canApprove = can("events.payment.approve")
+  const canCheckin = can("events.checkin")
+  const isMember = hasRole("member")
+  const myMemberId = user?.memberId ?? null
 
   const detail = useQuery<DetailResponse>(id ? `/events/${id}` : null)
   const meta = useQuery<{ groups: GroupRow[] }>("/members/meta")
@@ -211,6 +257,33 @@ export function EventDetailPage() {
   const participants = detail.data?.participants ?? []
   const songs = detail.data?.songs ?? []
   const groups = meta.data?.groups ?? []
+  const audience = detail.data?.audience ?? []
+  const contribution = detail.data?.contribution ?? {
+    required: false,
+    amount: null,
+    dueDate: null,
+    counts: { due: 0, paid: 0, waived: 0, total: 0 },
+    collected: 0,
+    outstanding: 0,
+  }
+  const contributions = detail.data?.contributions ?? []
+  const passes = detail.data?.passes ?? []
+  const myPass = detail.data?.myPass ?? null
+  const checkins = detail.data?.checkins ?? []
+  const photos = detail.data?.photos ?? []
+
+  // A past event is closed for answering, and its contribution list is history.
+  const today = new Date()
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+  const isPast = Boolean(event && event.date < todayIso)
+
+  /** Who the event is for, as a short label. */
+  const audienceLabel =
+    audience.length > 0
+      ? audience.map((group) => group.name).join(", ")
+      : event?.target_group_id
+        ? event.group_name ?? "One group"
+        : "Whole choir"
 
   const linkedSongIds = useMemo(() => new Set(songs.map((song) => song.song_id)), [songs])
 
@@ -320,7 +393,44 @@ export function EventDetailPage() {
     },
     { key: "group", header: "Group", render: (row) => row.group_name },
     { key: "role", header: "Role", render: (row) => (row.role ? humanize(row.role) : <span className="muted">—</span>) },
+    {
+      key: "rsvp",
+      header: "Answer",
+      render: (row) =>
+        row.rsvp ? (
+          <span
+            title={row.rsvp_note ?? undefined}
+            className="rounded-full px-2 py-0.5 text-xs font-medium capitalize"
+            style={{
+              background:
+                row.rsvp === "yes"
+                  ? "color-mix(in srgb, var(--color-green-500, #22c55e) 18%, transparent)"
+                  : row.rsvp === "no"
+                    ? "color-mix(in srgb, currentColor 8%, transparent)"
+                    : "color-mix(in srgb, var(--color-gold-400) 20%, transparent)",
+            }}
+          >
+            {row.rsvp}
+          </span>
+        ) : (
+          // Someone on the list who has not answered is worth seeing, since the
+          // coordinator chases them before the day rather than after.
+          <span className="muted text-xs">No answer</span>
+        ),
+    },
   ]
+
+  /** How many have answered, and how — the number that decides whether to chase. */
+  const rsvpCounts = participants.reduce(
+    (totals, participant) => {
+      if (participant.rsvp === "yes") totals.yes += 1
+      else if (participant.rsvp === "no") totals.no += 1
+      else if (participant.rsvp === "maybe") totals.maybe += 1
+      else totals.none += 1
+      return totals
+    },
+    { yes: 0, no: 0, maybe: 0, none: 0 },
+  )
 
   const songColumns: Column<EventSongRow>[] = [
     { key: "title", header: "Song", render: (row) => row.title },
@@ -391,8 +501,20 @@ export function EventDetailPage() {
               <DetailRow label="Date">{formatDate(event.date)}</DetailRow>
               <DetailRow label="Time">{formatTimeRange(event.start_time, event.end_time)}</DetailRow>
               <DetailRow label="Location">{event.location || "—"}</DetailRow>
-              <DetailRow label="Target group">{event.group_name || "Whole choir"}</DetailRow>
+              <DetailRow label="For">{audienceLabel}</DetailRow>
               <DetailRow label="Participants">{event.participant_count}</DetailRow>
+              <DetailRow label="Contribution">
+                {event.requires_contribution === 1 ? (
+                  <span className="tabular-nums">
+                    {formatAmount(event.contribution_amount)}
+                    {event.contribution_due_date ? (
+                      <span className="muted"> · by {formatDate(event.contribution_due_date)}</span>
+                    ) : null}
+                  </span>
+                ) : (
+                  "Free"
+                )}
+              </DetailRow>
               <DetailRow label="Public">{event.is_public === 1 ? "Yes" : "No"}</DetailRow>
               <DetailRow label="Created">{formatDate(event.created_at)}</DetailRow>
               {event.description ? (
@@ -412,10 +534,42 @@ export function EventDetailPage() {
             </CardBody>
           </Card>
 
+          {/* A member's own answer, contribution and pass. An administrator has no
+              member record, so this never appears for them. */}
+          {isMember && !canApprove ? (
+            <MyRsvp
+              eventId={event.id}
+              isPast={isPast}
+              contribution={contribution}
+              mine={contributions}
+              myAnswer={participants.find((participant) => participant.member_id === myMemberId) ?? null}
+              myPass={myPass}
+              onChanged={() => detail.reload()}
+            />
+          ) : null}
+
+          {/* The ledger and the door, for whoever runs the event. */}
+          {canApprove && (contribution.required || contributions.length > 0 || passes.length > 0) ? (
+            <EventContributionPanel
+              eventId={event.id}
+              eventName={event.name}
+              eventDate={event.date}
+              eventTime={event.start_time}
+              eventLocation={event.location}
+              summary={contribution}
+              contributions={contributions}
+              passes={passes}
+              checkins={checkins}
+              canApprove={canApprove}
+              canCheckin={canCheckin}
+              onChanged={() => detail.reload()}
+            />
+          ) : null}
+
           <Card>
             <CardHeader
               title="Participants"
-              description={`${participants.length} member${participants.length === 1 ? "" : "s"} linked to this event.`}
+              description={`${participants.length} member${participants.length === 1 ? "" : "s"} linked to this event · ${rsvpCounts.yes} coming, ${rsvpCounts.maybe} maybe, ${rsvpCounts.no} not coming, ${rsvpCounts.none} silent.`}
               actions={
                 canWrite ? (
                   <Button variant="outline" size="sm" icon={<UserPlus size={14} />} onClick={openParticipants}>
@@ -457,6 +611,18 @@ export function EventDetailPage() {
               />
             </div>
           </Card>
+
+          <EventPhotoGallery
+            eventId={event.id}
+            photos={photos}
+            canWrite={canWrite}
+            isPublic={event.is_public === 1}
+            onChanged={() => detail.reload()}
+          />
+
+          {/* The roll-call is the written door, so it belongs to whoever works
+              the door — and to past events especially, where it is the record. */}
+          {canCheckin ? <EventRollCall eventId={event.id} /> : null}
         </>
       )}
 

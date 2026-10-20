@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { z } from "zod"
-import { canActOnMember } from "../auth/access.js"
+import { canActOnMember, can } from "../auth/access.js"
 import { one, all } from "../db/index.js"
 import { recordAudit } from "../lib/audit.js"
 import { badRequest, forbidden, notFound } from "../lib/errors.js"
@@ -80,6 +80,7 @@ uploadsRouter.delete("/:id", requireAuth, (req, res) => {
   const canDelete =
     (file.bucket === "public" && (canSettings(req) )) ||
     (file.entity_type === "member_photo" && canMemberPhoto(req, file.entity_id)) ||
+    (file.entity_type === "event_photo" && canEventPhoto(req, file.entity_id)) ||
     (file.entity_type?.startsWith("song_") && canMusic(req))
   if (!canDelete) throw forbidden()
   deleteFile(file)
@@ -124,6 +125,11 @@ function authorizeFileAccess(req: { auth?: import("../auth/access.js").AuthUser 
     case "song_audio":
     case "song_lyrics_document":
       return user.permissions["music.read"] !== undefined
+    case "event_photo":
+      // Event photographs live in the public bucket, so this only matters if one
+      // is ever requested through the private-file route. Reading it follows
+      // reading the event.
+      return user.permissions["events.read"] !== undefined
     case "application_document": {
       const application = one<{ assigned_group_id: string | null; requested_group_id: string | null }>(
         "SELECT assigned_group_id, requested_group_id FROM applications WHERE id = ?", file.entity_id)
@@ -150,6 +156,41 @@ function canMemberPhoto(req: { auth?: import("../auth/access.js").AuthUser }, me
   if (!memberId) return false
   const member = one<{ id: string; group_id: string }>("SELECT id, group_id FROM members WHERE id = ?", memberId)
   return canActOnMember(req.auth!, "member.write", member)
+}
+
+/**
+ * Whether this viewer may delete a photograph of an event.
+ *
+ * The photograph belongs to the event, so permission follows the event: whoever
+ * may write it — the coordinator, the Chairman, or the group that owns it — may
+ * remove its pictures. Holding `events.manage` is enough on its own.
+ */
+function canEventPhoto(req: { auth?: import("../auth/access.js").AuthUser }, eventId: string | null): boolean {
+  const user = req.auth
+  if (!user || !eventId) return false
+  if (!can(user, "events.write")) return false
+  if (can(user, "events.manage")) return true
+
+  const event = one<{ id: string; target_group_id: string | null }>(
+    "SELECT id, target_group_id FROM events WHERE id = ?", eventId,
+  )
+  if (!event) return false
+
+  const audience = all<{ group_id: string }>(
+    "SELECT group_id FROM event_audiences WHERE event_id = ?", eventId,
+  ).map((row) => row.group_id)
+  const target = audience.length > 0 ? audience : [event.target_group_id]
+  if (target.some((groupId) => groupId === null)) return true
+
+  const scopes: [import("../auth/permissions.js").PermissionScope, string][] = [
+    ["senior", "grp_senior"],
+    ["junior", "grp_junior"],
+    ["members", "grp_members"],
+  ]
+  const visible = scopes
+    .filter(([scope]) => user.permissions["events.write"]?.includes(scope))
+    .map(([, groupId]) => groupId)
+  return target.some((groupId) => groupId !== null && visible.includes(groupId))
 }
 
 function toDto(row: FileRow) {

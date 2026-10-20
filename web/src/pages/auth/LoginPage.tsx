@@ -56,7 +56,14 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
   // straight to the account page, never to a page the server will refuse.
   if (!loading && user) return <Navigate to={user.mustChangePassword ? "/app/account" : "/app"} replace />
 
-  const from = (location.state as { from?: string } | null)?.from ?? "/app"
+  // Where to land after signing in. Router state is how the auth guards send
+  // someone here; `?next=` is how a scanned check-in link does, because it arrives
+  // as a plain URL from a QR code and carries no router state with it. Only a
+  // same-site path is honoured, so a crafted link cannot bounce anyone off-site.
+  const requested = new URLSearchParams(location.search).get("next")
+  const from =
+    (location.state as { from?: string } | null)?.from ??
+    (requested && requested.startsWith("/") && !requested.startsWith("//") ? requested : "/app")
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()

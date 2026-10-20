@@ -319,6 +319,61 @@ test("the public calendar lists only events the coordinator published", async ()
   assert.ok(hidden)
 })
 
+test("the public calendar separates what is ahead from what has passed", async () => {
+  // The page has Upcoming, Past and All tabs, and each asks for its own slice.
+  // The choir's test event dates are in 2026, so "now" is faked by comparing the
+  // scopes against each other rather than against the wall clock.
+  const all = await api("GET", "/api/public/events?scope=all")
+  assert.equal(all.status, 200, JSON.stringify(all.json))
+  const allNames = (all.json.events ?? []).map((event: any) => event.name)
+
+  const upcoming = await api("GET", "/api/public/events?scope=upcoming")
+  const past = await api("GET", "/api/public/events?scope=past")
+  assert.equal(upcoming.status, 200)
+  assert.equal(past.status, 200)
+
+  const upcomingNames = (upcoming.json.events ?? []).map((event: any) => event.name)
+  const pastNames = (past.json.events ?? []).map((event: any) => event.name)
+
+  // Every published event falls in exactly one of the two, and both together are
+  // the whole set — no event is lost or counted twice by the tabs.
+  assert.deepEqual(
+    [...upcomingNames, ...pastNames].sort(),
+    [...allNames].sort(),
+    "upcoming plus past must add up to all",
+  )
+  for (const name of upcomingNames) {
+    assert.equal(pastNames.includes(name), false, `"${name}" cannot be both upcoming and past`)
+  }
+
+  // An unknown scope falls back to upcoming rather than reaching the query.
+  const nonsense = await api("GET", "/api/public/events?scope=DROP%20TABLE")
+  assert.equal(nonsense.status, 200)
+  assert.deepEqual(
+    (nonsense.json.events ?? []).map((event: any) => event.name),
+    upcomingNames,
+    "an unknown scope behaves as the default",
+  )
+})
+
+test("a public event names the groups it is for, and carries no more than that", async () => {
+  const eventId = await createEvent(coordinator, {
+    name: "Joint concert",
+    eventType: "concert",
+    date: "2026-12-20",
+    isPublic: true,
+    audienceGroupIds: ["grp_senior", "grp_junior"],
+  })
+
+  const res = await api("GET", "/api/public/events?scope=all")
+  const event = (res.json.events ?? []).find((row: any) => row.id === eventId)
+  assert.ok(event, "the published event must be listed")
+  assert.deepEqual([...event.audience].sort(), ["Junior", "Senior"], "a visitor may see which groups are taking part")
+  assert.equal(event.contribution, null, "an event with no contribution asks for nothing")
+  // The audience is names, never internal group ids.
+  assert.equal(JSON.stringify(event).includes("grp_"), false, "group ids are internal")
+})
+
 // --- A member's own answer -----------------------------------------------------
 
 test("a member may answer for themselves, and nobody else", async () => {
@@ -329,4 +384,157 @@ test("a member may answer for themselves, and nobody else", async () => {
     cookie: seniorAdmin.cookie, body: { rsvp: "yes" },
   })
   assert.equal(asAdmin.status, 403, "only members reply to an event")
+})
+
+// --- Roll-call -----------------------------------------------------------------
+
+/** Adds a member straight to the database — there is no member API in these tests. */
+function makeMember(groupId: string, name: string): string {
+  const memberId = `mbr_roll_${Math.random().toString(36).slice(2, 10)}`
+  run(
+    `INSERT INTO members (id, member_no, full_name, group_id, status, joined_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'active', '2026-01-01', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+    memberId, `CHR-2026-R${memberId.slice(-4)}`, name, groupId,
+  )
+  return memberId
+}
+
+test("the roll-call lists the event's audience, and marks who came", async () => {
+  const alice = makeMember("grp_junior", "Roll Call Alice")
+  const bob = makeMember("grp_junior", "Roll Call Bob")
+  // A senior is not part of a junior-only event and must not be on its roll.
+  const carol = makeMember("grp_senior", "Roll Call Carol")
+
+  const eventId = await createEvent(coordinator, {
+    name: "Junior rehearsal roll-call",
+    eventType: "rehearsal",
+    date: "2026-12-18",
+    audienceGroupIds: ["grp_junior"],
+  })
+
+  const before = await api("GET", `/api/events/${eventId}/roll-call`, { cookie: coordinator.cookie })
+  assert.equal(before.status, 200, JSON.stringify(before.json))
+  const names = before.json.rollCall.entries.map((entry: any) => entry.full_name)
+  assert.equal(names.includes("Roll Call Alice"), true)
+  assert.equal(names.includes("Roll Call Carol"), false, "someone outside the audience is not on the roll")
+  assert.equal(before.json.rollCall.counts.unmarked, 2)
+  assert.equal(before.json.rollCall.sessionId, null, "no session exists until somebody marks it")
+
+  const marked = await api("PUT", `/api/events/${eventId}/roll-call`, {
+    cookie: coordinator.cookie,
+    body: {
+      records: [
+        { memberId: alice, status: "present" },
+        { memberId: bob, status: "late", notes: "Arrived 20 minutes in" },
+      ],
+    },
+  })
+  assert.equal(marked.status, 200, JSON.stringify(marked.json))
+  assert.equal(marked.json.rollCall.counts.present, 1)
+  assert.equal(marked.json.rollCall.counts.late, 1)
+  assert.equal(marked.json.rollCall.counts.unmarked, 0)
+  assert.ok(marked.json.rollCall.sessionId, "marking the roll creates the session")
+
+  // The mark lands in the choir's ordinary attendance record, next to every
+  // rehearsal — not in an events-only side table.
+  const record = one<{ status: string; notes: string | null }>(
+    `SELECT r.status, r.notes FROM attendance_records r
+       JOIN attendance_sessions s ON s.id = r.session_id
+      WHERE s.event_id = ? AND r.member_id = ?`,
+    eventId, bob,
+  )
+  assert.equal(record?.status, "late")
+  assert.equal(record?.notes, "Arrived 20 minutes in")
+
+  // Marking again updates the same session rather than starting another.
+  const again = await api("PUT", `/api/events/${eventId}/roll-call`, {
+    cookie: coordinator.cookie, body: { records: [{ memberId: bob, status: "present" }] },
+  })
+  assert.equal(again.json.rollCall.sessionId, marked.json.rollCall.sessionId, "one session per event")
+  assert.equal(again.json.rollCall.counts.late, 0)
+  assert.equal(again.json.rollCall.counts.present, 2)
+
+  // Someone outside the audience cannot be marked, even by name: the roll-call
+  // must not become a way of recording attendance for a person who was never
+  // part of the event.
+  const outside = await api("PUT", `/api/events/${eventId}/roll-call`, {
+    cookie: coordinator.cookie, body: { records: [{ memberId: carol, status: "present" }] },
+  })
+  assert.equal(outside.status, 400, "a senior is not part of a junior-only event")
+})
+
+test("a group administrator cannot take the roll-call of another group's event", async () => {
+  const eventId = await createEvent(coordinator, {
+    name: "Senior-only roll-call",
+    eventType: "rehearsal",
+    date: "2026-12-19",
+    audienceGroupIds: ["grp_senior"],
+  })
+
+  // The junior administrator has neither the door permission nor this audience.
+  const forbidden = await api("GET", `/api/events/${eventId}/roll-call`, { cookie: juniorAdmin.cookie })
+  assert.equal(forbidden.status, 403, "working the door belongs to the coordinator")
+
+  const missing = await api("GET", `/api/events/evt_nope/roll-call`, { cookie: coordinator.cookie })
+  assert.equal(missing.status, 404)
+})
+
+// --- Event photographs ---------------------------------------------------------
+
+test("a photograph is kept with its event and removed with it", async () => {
+  const eventId = await createEvent(coordinator, {
+    name: "Concert with pictures",
+    eventType: "concert",
+    date: "2026-12-21",
+    isPublic: true,
+  })
+
+  // A one-pixel PNG, so the upload path is exercised for real.
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+    "base64",
+  )
+  const form = new FormData()
+  form.append("file", new Blob([png], { type: "image/png" }), "concert.png")
+  const uploaded = await fetch(`${base}/api/events/${eventId}/photos`, {
+    method: "POST", headers: { cookie: coordinator.cookie }, body: form,
+  })
+  const uploadedText = await uploaded.text()
+  assert.equal(uploaded.status, 201, uploadedText)
+  const created = JSON.parse(uploadedText)
+  assert.equal(created.photos.length, 1)
+  assert.match(created.photos[0].url, /^\/media\//, "an event photograph is served from the public media path")
+
+  // The picture rides along with the event detail, so the page needs no extra call.
+  const detail = await api("GET", `/api/events/${eventId}`, { cookie: coordinator.cookie })
+  assert.equal(detail.json.photos.length, 1)
+  assert.equal(detail.json.photos[0].originalName, "concert.png")
+
+  // And it appears on the public calendar, because the event is published.
+  const publicList = await api("GET", "/api/public/events?scope=all")
+  const published = (publicList.json.events ?? []).find((row: any) => row.id === eventId)
+  assert.equal(published.photos.length, 1, "a published event shows its photographs")
+
+  const photoId = created.photos[0].id
+  const removed = await api("DELETE", `/api/events/${eventId}/photos/${photoId}`, { cookie: coordinator.cookie })
+  assert.equal(removed.status, 200)
+  assert.equal(removed.json.photos.length, 0)
+})
+
+test("photographs follow the event's group, not whoever asks", async () => {
+  const eventId = await createEvent(coordinator, {
+    name: "Junior-only pictures",
+    eventType: "retreat",
+    date: "2026-12-22",
+    audienceGroupIds: ["grp_junior"],
+  })
+
+  // A senior administrator may not add pictures to a junior event, and must not
+  // be told whether it exists.
+  const form = new FormData()
+  form.append("file", new Blob([Buffer.from([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" }), "nope.png")
+  const denied = await fetch(`${base}/api/events/${eventId}/photos`, {
+    method: "POST", headers: { cookie: seniorAdmin.cookie }, body: form,
+  })
+  assert.equal(denied.status, 404, "another group's event is not even acknowledged")
 })

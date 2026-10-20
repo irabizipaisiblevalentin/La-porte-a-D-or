@@ -39,13 +39,21 @@ interface FeaturedSong {
 /**
  * GET /public/events — the choir's public calendar.
  *
- * Only events the coordinator published to the public site (`audience_public`),
- * and only the ones still ahead of us plus anything in the next fortnight that
- * has just passed. A contribution, when there is one, is shown as information:
- * a visitor cannot pay here, and no participant, payment or pass data is
- * exposed.
+ * Only events the coordinator published to the public site (`audience_public`).
+ * The `scope` says which slice of the calendar is wanted: `upcoming` (the
+ * default) is everything from today on, `past` is everything before it, and `all`
+ * is both — which is what the page's own tabs ask for.
+ *
+ * A contribution, when there is one, is shown as information: a visitor cannot
+ * pay here, and no participant, payment or pass data is exposed.
  */
-publicRouter.get("/events", (_req, res) => {
+publicRouter.get("/events", (req, res) => {
+  const todayIso = today()
+  // Only the three known scopes, so the parameter can never shape the SQL.
+  const scope = req.query.scope === "past" ? "past" : req.query.scope === "all" ? "all" : "upcoming"
+  const comparison = scope === "past" ? "<" : ">="
+  const where = scope === "all" ? "" : `AND date ${comparison} ?`
+
   const rows = all<{
     id: string
     name: string
@@ -64,10 +72,10 @@ publicRouter.get("/events", (_req, res) => {
     `SELECT id, name, event_type, date, start_time, end_time, location, description,
             is_public, audience_public, requires_contribution, contribution_amount, contribution_note
        FROM events
-      WHERE is_public = 1 AND status <> 'cancelled' AND date >= ?
-      ORDER BY date ASC, start_time ASC
-      LIMIT 100`,
-    today(),
+      WHERE is_public = 1 AND status <> 'cancelled' ${where}
+      ORDER BY ${scope === "past" ? "date DESC, start_time DESC" : "date ASC, start_time ASC"}
+      LIMIT 200`,
+    ...(scope === "all" ? [] : [todayIso]),
   )
 
   const audienceByEvent = all<{ event_id: string; name: string }>(
@@ -83,6 +91,24 @@ publicRouter.get("/events", (_req, res) => {
     names.set(row.event_id, [...(names.get(row.event_id) ?? []), row.name])
   }
 
+  // Photographs of each published event, so the public page can show what a
+  // performance looked like. Only the URL and the caption are exposed — never the
+  // uploader or the stored path.
+  const photoRows = all<{ entity_id: string; id: string; path: string; original_name: string }>(
+    `SELECT f.entity_id, f.id, f.path, f.original_name
+       FROM file_uploads f
+       JOIN events e ON e.id = f.entity_id
+      WHERE f.entity_type = 'event_photo' AND e.is_public = 1
+      ORDER BY f.created_at ASC, f.id ASC`,
+  )
+  const photos = new Map<string, { id: string; url: string; name: string }[]>()
+  for (const row of photoRows) {
+    photos.set(row.entity_id, [
+      ...(photos.get(row.entity_id) ?? []),
+      { id: row.id, url: `/media/${row.path.replace("public/", "")}`, name: row.original_name },
+    ])
+  }
+
   res.json({
     events: rows.map((row) => ({
       id: row.id,
@@ -94,6 +120,7 @@ publicRouter.get("/events", (_req, res) => {
       location: row.location,
       description: row.description,
       audience: names.get(row.id) ?? [],
+      photos: photos.get(row.id) ?? [],
       contribution:
         row.requires_contribution === 1 && row.contribution_amount !== null
           ? { amount: row.contribution_amount, note: row.contribution_note }

@@ -25,12 +25,13 @@ interface AuthContextValue {
   logout: () => Promise<void>
   refresh: () => Promise<SessionUser | null>
   can: (permission: string, scope?: PermissionScope) => boolean
+  hasRole: (role: string) => boolean
   isAdmin: boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const ADMIN_ROLES = ["chairman", "senior_leader", "junior_admin", "members_admin"]
+const ADMIN_ROLES = ["chairman", "senior_leader", "junior_admin", "members_admin", "events_coordinator"]
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null)
@@ -79,6 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   )
 
+  const hasRole = useCallback(
+    (role: string) => Boolean(user?.roles.includes(role)),
+    [user],
+  )
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -87,9 +93,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       refresh,
       can,
+      hasRole,
       isAdmin: Boolean(user && user.roles.some((role) => ADMIN_ROLES.includes(role))),
     }),
-    [user, loading, login, logout, refresh, can],
+    [user, loading, login, logout, refresh, can, hasRole],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

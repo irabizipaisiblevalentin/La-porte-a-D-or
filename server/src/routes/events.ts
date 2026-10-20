@@ -5,9 +5,11 @@ import { recordAudit } from "../lib/audit.js"
 import { badRequest, forbidden, notFound } from "../lib/errors.js"
 import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { requireAuth, requirePermission } from "../middleware/auth.js"
-import { can } from "../auth/access.js"
+import { can, type AuthUser } from "../auth/access.js"
 import { id } from "../lib/security.js"
 import { isValidDateString, isValidTimeString, nowIso } from "../lib/time.js"
+import { imageUpload } from "../middleware/upload.js"
+import { deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
 import {
   audienceVisibilityClause,
   checkIn,
@@ -169,6 +171,43 @@ function visibleGroupIds(user: { groupId: string | null; permissions: Record<str
   return user.groupId ? [user.groupId] : []
 }
 
+/**
+ * Whether an event falls inside what this viewer is allowed to see.
+ *
+ * The rule is the same for reading and for writing, so it is written once. An
+ * event with no audience and no target group is the whole choir's, and is open to
+ * anyone who may touch events at all; an event addressed to a group belongs to
+ * that group.
+ */
+function eventIsVisibleTo(user: AuthUser, event: EventRow): boolean {
+  const visible = visibleGroupIds(user)
+  if (visible === "all") return true
+  const audience = eventAudience(event.id)
+  const target = audience.length > 0 ? audience.map((group) => group.id) : [event.target_group_id]
+  return target.some((groupId) => groupId === null || visible.includes(groupId))
+}
+
+/** Whether this viewer may open a particular event. */
+function canReadEvent(user: AuthUser, event: EventRow): boolean {
+  if (!can(user, "events.read")) return false
+  if (can(user, "events.manage")) return true
+  return eventIsVisibleTo(user, event)
+}
+
+/**
+ * Whether this viewer may change a *particular* event.
+ *
+ * `events.write` is granted per group, so holding it means "my group's events"
+ * rather than "every event" — which is what stops a senior administrator from
+ * editing a junior retreat. Someone with `events.manage` (the coordinator and the
+ * Chairman) may change any event.
+ */
+function canWriteEvent(user: AuthUser, event: EventRow): boolean {
+  if (!can(user, "events.write")) return false
+  if (can(user, "events.manage")) return true
+  return eventIsVisibleTo(user, event)
+}
+
 function listParticipants(eventId: string): EventParticipantRow[] {
   return all<EventParticipantRow>(
     `SELECT ep.member_id, ep.role, ep.added_at, ep.rsvp, ep.rsvp_at, ep.rsvp_note,
@@ -223,7 +262,9 @@ function assertSongsExist(songIds: string[]): void {
 }
 
 eventsRouter.get("/", requireAuth, requirePermission("events.read"), (req, res) => {
-  const p = pagination(req)
+  // The calendar asks for a whole month, which can exceed the default page. The
+  // bound is raised rather than removed so a page is still a page.
+  const p = pagination(req, 25, 200)
   const typeFilter = queryString(req, "type")
   const groupFilter = queryString(req, "groupId")
   const from = queryString(req, "from")
@@ -325,13 +366,7 @@ eventsRouter.get("/:id", requireAuth, requirePermission("events.read"), (req, re
   // A group may only open the events addressed to it. Without this the audience
   // would be a display setting rather than a rule, and a junior could read a
   // senior-only event by guessing its id.
-  const visible = visibleGroupIds(req.auth!)
-  if (visible !== "all") {
-    const audience = eventAudience(event.id)
-    const target = audience.length > 0 ? audience.map((group) => group.id) : [event.target_group_id]
-    const allowed = target.some((groupId) => groupId === null || visible.includes(groupId))
-    if (!allowed) throw notFound("That event does not exist.")
-  }
+  if (!canReadEvent(req.auth!, event)) throw notFound("That event does not exist.")
 
   const canManage = can(req.auth!, "events.manage")
   res.json({
@@ -347,12 +382,16 @@ eventsRouter.get("/:id", requireAuth, requirePermission("events.read"), (req, re
     passes: canManage ? listPasses(event.id) : [],
     myPass: req.auth!.memberId ? ownPass(event.id, req.auth!.memberId) : null,
     checkins: canManage ? listCheckins(event.id) : [],
+    photos: listEventPhotos(event.id),
   })
 })
 
 eventsRouter.patch("/:id", requireAuth, requirePermission("events.write"), (req, res) => {
   const event = getEvent(String(req.params.id))
   if (!event) throw notFound("That event does not exist.")
+  // A group writes its own group's events. Without this a senior administrator
+  // could edit a junior retreat by guessing its id.
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
   const input = parse(eventSchema.partial(), req.body)
 
   // Audience and money are the Events Coordinator's to change; a group
@@ -421,6 +460,7 @@ eventsRouter.patch("/:id", requireAuth, requirePermission("events.write"), (req,
 eventsRouter.delete("/:id", requireAuth, requirePermission("events.write"), (req, res) => {
   const event = getEvent(String(req.params.id))
   if (!event) throw notFound("That event does not exist.")
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
   run("DELETE FROM events WHERE id = ?", event.id)
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,
@@ -433,6 +473,7 @@ eventsRouter.delete("/:id", requireAuth, requirePermission("events.write"), (req
 eventsRouter.put("/:id/participants", requireAuth, requirePermission("events.write"), (req, res) => {
   const event = getEvent(String(req.params.id))
   if (!event) throw notFound("That event does not exist.")
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
   const input = parse(participantsSchema, req.body)
   const memberIds = Array.from(new Set(input.memberIds))
   assertMembersExist(memberIds)
@@ -460,6 +501,7 @@ eventsRouter.put("/:id/participants", requireAuth, requirePermission("events.wri
 eventsRouter.post("/:id/songs", requireAuth, requirePermission("events.write"), (req, res) => {
   const event = getEvent(String(req.params.id))
   if (!event) throw notFound("That event does not exist.")
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
   const input = parse(songsSchema, req.body)
   const songIds = Array.from(new Set(input.songIds))
   assertSongsExist(songIds)
@@ -486,6 +528,7 @@ eventsRouter.post("/:id/songs", requireAuth, requirePermission("events.write"), 
 eventsRouter.delete("/:id/songs/:songId", requireAuth, requirePermission("events.write"), (req, res) => {
   const event = getEvent(String(req.params.id))
   if (!event) throw notFound("That event does not exist.")
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
   const songId = String(req.params.songId)
   const link = one<{ song_id: string }>(
     "SELECT song_id FROM event_songs WHERE event_id = ? AND song_id = ?",
@@ -684,3 +727,245 @@ eventsRouter.put("/:id/rsvp", requireAuth, requirePermission("events.read"), (re
 
   res.json({ participants: listParticipants(event.id), contribution: contributionSummary(event.id) })
 })
+
+// --- Photographs of an event -------------------------------------------------
+
+/**
+ * A photograph taken at an event.
+ *
+ * Photos live in the same `file_uploads` table as the gallery and member pictures,
+ * under their own entity type, so they are backed up, served from the bucket and
+ * cached exactly like everything else. The bucket is *public*, because an event
+ * photograph is part of what the choir shows the world — and the events list
+ * already says which of them are public.
+ */
+eventsRouter.get("/:id/photos", requireAuth, requirePermission("events.read"), (req, res) => {
+  const event = getEvent(String(req.params.id))
+  if (!event) throw notFound("That event does not exist.")
+  if (!canReadEvent(req.auth!, event)) throw notFound("That event does not exist.")
+  res.json({ photos: listEventPhotos(event.id) })
+})
+
+eventsRouter.post(
+  "/:id/photos",
+  requireAuth,
+  requirePermission("events.write"),
+  imageUpload.single("file"),
+  (req, res) => {
+    const event = getEvent(String(req.params.id))
+    if (!event) throw notFound("That event does not exist.")
+    // Another group's event is not acknowledged at all: a 403 would confirm it
+    // exists, which is exactly what the audience rule is meant to prevent.
+    if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
+    if (!req.file) throw badRequest("Choose an image file to upload.")
+
+    const saved = saveUpload({
+      bucket: "public",
+      entityType: "event_photo",
+      entityId: event.id,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      data: req.file.buffer,
+      uploadedBy: req.auth!.id,
+    })
+    recordAudit({
+      actorId: req.auth!.id, actorName: req.auth!.displayName,
+      action: "event.photo_add", entityType: "event", entityId: event.id,
+      summary: `Photograph added to event "${event.name}"`, ip: req.ip,
+    })
+    res.status(201).json({ photos: listEventPhotos(event.id) })
+  },
+)
+
+eventsRouter.delete("/:id/photos/:photoId", requireAuth, requirePermission("events.write"), (req, res) => {
+  const event = getEvent(String(req.params.id))
+  if (!event) throw notFound("That event does not exist.")
+  if (!canWriteEvent(req.auth!, event)) throw notFound("That event does not exist.")
+
+  const file = one<FileRow>(
+    "SELECT * FROM file_uploads WHERE id = ? AND entity_type = 'event_photo' AND entity_id = ?",
+    String(req.params.photoId), event.id,
+  )
+  if (!file) throw notFound("That photograph is not on this event.")
+
+  deleteFile(file)
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "event.photo_remove", entityType: "event", entityId: event.id,
+    summary: `Photograph removed from event "${event.name}"`, ip: req.ip,
+  })
+  res.json({ photos: listEventPhotos(event.id) })
+})
+
+interface EventPhoto {
+  id: string
+  url: string
+  originalName: string
+  createdAt: string
+}
+
+function listEventPhotos(eventId: string): EventPhoto[] {
+  return all<FileRow>(
+    `SELECT * FROM file_uploads
+      WHERE entity_type = 'event_photo' AND entity_id = ?
+      ORDER BY created_at ASC, id ASC`,
+    eventId,
+  ).map((row) => ({
+    id: row.id,
+    url: `/media/${row.path.replace("public/", "")}`,
+    originalName: row.original_name,
+    createdAt: row.created_at,
+  }))
+}
+
+// --- Roll-call ---------------------------------------------------------------
+//
+// Who actually came, as opposed to who said they would. Answering an event is a
+// promise; the roll-call is the record. It is kept in the choir's ordinary
+// attendance tables (`attendance_sessions` / `attendance_records`) with the
+// event's id on the session, so a performance's attendance sits beside every
+// rehearsal's and reports the same way.
+//
+// Working the roll-call is the door's counterpart, so it takes `events.checkin`
+// rather than inventing another permission: whoever may let people in may say who
+// came.
+
+const ROLL_CALL_STATUSES = ["present", "late", "absent", "excused"] as const
+
+/** The attendance session for an event, if one has been started. */
+function eventAttendanceSession(eventId: string): { id: string } | undefined {
+  return one<{ id: string }>("SELECT id FROM attendance_sessions WHERE event_id = ?", eventId)
+}
+
+/** The roll-call as it stands: everyone who should be there, and how they are marked. */
+function eventRollCall(event: EventRow) {
+  const session = eventAttendanceSession(event.id)
+  const audience = eventAudience(event.id)
+  const groupIds = audience.length > 0 ? audience.map((group) => group.id) : [event.target_group_id]
+
+  // Everyone the event is for is on the roll — an audience with no group means the
+  // whole choir. Someone marked once keeps their mark; everyone else shows as
+  // unmarked, which is what a coordinator scanning the list needs to see.
+  const rows = all<{ member_id: string; full_name: string; member_no: string; group_id: string; group_name: string; status: string | null; notes: string | null }>(
+    `SELECT m.id AS member_id, m.full_name, m.member_no, m.group_id, g.name AS group_name, r.status, r.notes
+       FROM members m
+       JOIN groups g ON g.id = m.group_id
+       LEFT JOIN attendance_records r ON r.session_id = ? AND r.member_id = m.id
+      WHERE m.status = 'active'
+        AND (? = 1 OR m.group_id IN (SELECT value FROM json_each(?)))
+      ORDER BY m.full_name COLLATE NOCASE`,
+    session?.id ?? "", groupIds.some((groupId) => groupId === null) ? 1 : 0,
+    JSON.stringify(groupIds.filter((groupId): groupId is string => groupId !== null)),
+  )
+
+  return {
+    sessionId: session?.id ?? null,
+    counts: {
+      present: rows.filter((row) => row.status === "present").length,
+      late: rows.filter((row) => row.status === "late").length,
+      absent: rows.filter((row) => row.status === "absent").length,
+      excused: rows.filter((row) => row.status === "excused").length,
+      unmarked: rows.filter((row) => row.status === null).length,
+      total: rows.length,
+    },
+    entries: rows.map((row) => ({
+      member_id: row.member_id,
+      full_name: row.full_name,
+      member_no: row.member_no,
+      group_id: row.group_id,
+      group_name: row.group_name,
+      status: row.status ?? "unmarked",
+      notes: row.notes,
+    })),
+  }
+}
+
+eventsRouter.get("/:id/roll-call", requireAuth, requirePermission("events.checkin"), (req, res) => {
+  const event = getEvent(String(req.params.id))
+  if (!event) throw notFound("That event does not exist.")
+  if (!canReadEvent(req.auth!, event)) throw notFound("That event does not exist.")
+  res.json({ rollCall: eventRollCall(event) })
+})
+
+eventsRouter.put("/:id/roll-call", requireAuth, requirePermission("events.checkin"), (req, res) => {
+  const event = getEvent(String(req.params.id))
+  if (!event) throw notFound("That event does not exist.")
+  if (!canReadEvent(req.auth!, event)) throw notFound("That event does not exist.")
+
+  const input = parse(
+    z.object({
+      records: z
+        .array(
+          z.object({
+            memberId: z.string().trim().min(1),
+            status: z.enum(ROLL_CALL_STATUSES),
+            notes: z.string().trim().max(500).nullable().optional(),
+          }),
+        )
+        .max(500),
+    }),
+    req.body,
+  )
+  if (input.records.length === 0) throw badRequest("Provide at least one member to mark.")
+
+  const timestamp = nowIso()
+  // The session is created the first time somebody marks the roll, so an event
+  // that never needed one leaves no empty attendance session behind.
+  let session = eventAttendanceSession(event.id)
+  if (!session) {
+    const sessionId = id()
+    run(
+      `INSERT INTO attendance_sessions (id, title, activity_type, date, start_time, end_time, location,
+                                        location_id, target_group_id, recorder_id, notes, event_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+      sessionId, event.name, rollCallActivityType(event.event_type), event.date,
+      event.start_time, event.end_time, event.location, event.location_id, event.target_group_id,
+      req.auth!.id, event.id, timestamp, timestamp,
+    )
+    session = { id: sessionId }
+  }
+
+  transaction(() => {
+    for (const entry of input.records) {
+      const member = one<{ id: string; group_id: string }>(
+        "SELECT id, group_id FROM members WHERE id = ?", entry.memberId,
+      )
+      if (!member) throw badRequest(`Member ${entry.memberId} does not exist.`)
+      // Only people the event is for may be marked. Otherwise a roll-call could
+      // quietly become a way of recording attendance for someone who was never
+      // part of the event.
+      const audience = eventAudience(event.id)
+      const groupIds = audience.length > 0 ? audience.map((group) => group.id) : [event.target_group_id]
+      const wholeChoir = groupIds.some((groupId) => groupId === null)
+      if (!wholeChoir && !groupIds.includes(member.group_id)) {
+        throw badRequest("That member is not part of this event's audience.")
+      }
+      run(
+        `INSERT INTO attendance_records (id, session_id, member_id, status, notes, recorded_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id, member_id) DO UPDATE SET
+           status = excluded.status,
+           notes = excluded.notes,
+           recorded_by = excluded.recorded_by,
+           updated_at = excluded.updated_at`,
+        id(), session!.id, entry.memberId, entry.status, entry.notes ?? null, req.auth!.id, timestamp, timestamp,
+      )
+    }
+    run("UPDATE attendance_sessions SET updated_at = ? WHERE id = ?", timestamp, session!.id)
+  })
+
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "event.roll_call", entityType: "event", entityId: event.id,
+    summary: `Roll-call taken for "${event.name}" (${input.records.length} marked)`,
+    detail: { sessionId: session.id }, ip: req.ip,
+  })
+  res.json({ rollCall: eventRollCall(event) })
+})
+
+/** The attendance activity type that best describes an event, for the reports. */
+function rollCallActivityType(eventType: string): string {
+  const known = ["rehearsal", "performance", "church_service", "meeting", "training", "concert"]
+  if (known.includes(eventType)) return eventType
+  return "other"
+}
