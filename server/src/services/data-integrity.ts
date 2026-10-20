@@ -115,15 +115,60 @@ export function reportedIntegrityProblems(): readonly IntegrityProblem[] {
   return integrityProblems
 }
 
-/** Reads one row from each critical table; returns what broke, if anything. */
+/**
+ * Maps the "Tree N" numbers in an integrity report back to table names.
+ *
+ * SQLite's report says `Tree 75 page 75 cell 0: 2nd reference to page 251` — it
+ * identifies the broken tree by its root page, not by name. A number alone is
+ * useless to whoever has to fix it, so the root page of each probe table is read
+ * from `sqlite_master` and used to translate. Trees that do not correspond to a
+ * table we know are left as-is.
+ */
+function treeRootPages(): Map<number, string> {
+  const map = new Map<number, string>()
+  try {
+    const rows = all<{ name: string; rootpage: number }>(
+      "SELECT name, rootpage FROM sqlite_master WHERE type = 'table' AND rootpage > 0",
+    )
+    for (const row of rows) map.set(row.rootpage, row.name)
+  } catch {
+    // The catalog itself is unreadable; the raw report still gets reported.
+  }
+  return map
+}
+
+/** Replaces `Tree 75` with `Tree 75 (songs)` so the report names the table. */
+function nameTrees(report: string, roots: Map<number, string>): string {
+  return report.replace(/Tree (\d+)/g, (whole, number: string) => {
+    const table = roots.get(Number(number))
+    return table ? `${whole} (${table})` : whole
+  })
+}
+
+/**
+ * Reads every critical table end to end and runs SQLite's own integrity check;
+ * returns what broke, if anything.
+ *
+ * Two independent signals, because they catch different damage:
+ *
+ *  1. `PRAGMA integrity_check` inspects the file's structures and is what
+ *     actually named the live corruption (`2nd reference to page 251`). Its
+ *     report is translated so it says which table each broken tree belongs to.
+ *  2. A **full scan** of each critical table. `LIMIT 1` was not enough: the
+ *     damage that took out the public music page sat deep in the `songs` tree,
+ *     so reading the first row returned a healthy page and reported the table as
+ *     fine while every real query failed. Scanning visits every page, which is
+ *     what the failing queries do.
+ */
 export function checkDatabaseIntegrity(): IntegrityProblem[] {
   const problems: IntegrityProblem[] = []
+  const roots = treeRootPages()
 
   try {
     const result = one<{ integrity_check: string }>("PRAGMA integrity_check")
     const verdict = result?.integrity_check ?? ""
     if (verdict && verdict !== "ok") {
-      problems.push({ table: "(whole database)", message: verdict })
+      problems.push({ table: "(whole database)", message: nameTrees(verdict, roots) })
     }
   } catch (error) {
     problems.push({ table: "(whole database)", message: error instanceof Error ? error.message : String(error) })
@@ -131,8 +176,8 @@ export function checkDatabaseIntegrity(): IntegrityProblem[] {
 
   for (const table of PROBE_TABLES) {
     try {
-      // A real scan of the table's pages, not just a count from an index.
-      all(`SELECT * FROM ${table} LIMIT 1`)
+      // Walk the whole table, not just its first row — see the note above.
+      all(`SELECT * FROM ${table}`)
     } catch (error) {
       problems.push({ table, message: error instanceof Error ? error.message : String(error) })
     }
