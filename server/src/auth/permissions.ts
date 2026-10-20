@@ -40,8 +40,11 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: "goals.read", name: "View goals", description: "View choir goals and progress history.", scopes: ["global"] },
   { key: "goals.write", name: "Manage goals", description: "Create goals and record progress.", scopes: ["global"] },
 
-  { key: "events.read", name: "View events", description: "View events and participants.", scopes: ["global"] },
+  { key: "events.read", name: "View events", description: "View the events addressed to you. An event is only visible to the groups it is meant for.", scopes: ["global"] },
   { key: "events.write", name: "Manage events", description: "Create and edit events and participants.", scopes: ["global"] },
+  { key: "events.manage", name: "Run the events programme", description: "Own the events module: set who each event is for, whether it needs a contribution, the amount, and publish it to the public site.", scopes: ["global"] },
+  { key: "events.payment.approve", name: "Confirm event contributions", description: "Confirm that a participant has paid their contribution for an event, and issue their entrance pass.", scopes: ["global"] },
+  { key: "events.checkin", name: "Check people in at an event door", description: "Scan or type an entrance passcode and record who has arrived.", scopes: ["global"] },
 
   { key: "training.read", name: "View training", description: "View training sessions and participant history.", scopes: ["global"] },
   { key: "training.write", name: "Manage training", description: "Create and edit training sessions and participants.", scopes: ["global"] },
@@ -156,6 +159,27 @@ export const ROLES: RoleDef[] = [
     ],
   },
   {
+    key: "events_coordinator",
+    name: "Events Coordinator",
+    description: "Runs the choir's events programme across all groups. Decides who each event is for, whether it needs a contribution and how much, confirms who has paid, issues entrance passes and checks people in at the door. Does not manage members or applications: each group still looks after its own.",
+    grants: [
+      g("dashboard.view", "global"),
+      // Events are the whole job — including the parts group administrators do
+      // not touch: the audience, the contribution and the door.
+      g("events.read", "global"), g("events.write", "global"), g("events.manage", "global"),
+      g("events.payment.approve", "global"), g("events.checkin", "global"),
+      // Enough of the register to pick participants and see who is in which
+      // group — but read-only, and no applications or sensitive minor records.
+      g("member.read", "global"),
+      g("music.read", "global"),
+      g("announcements.read", "global"), g("announcements.write", "global"),
+      g("notifications.read", "global"),
+      g("messages.send", "own"),
+      g("reports.read", "global"),
+      g("search.global", "global"),
+    ],
+  },
+  {
     key: "senior_singer",
     name: "Senior Singer",
     description: "Ordinary Senior chorister. Own profile, own attendance, own progress and shared choir information.",
@@ -213,7 +237,7 @@ export const ROLES: RoleDef[] = [
 
 export const ROLE_KEYS = ROLES.map((r) => r.key)
 
-export const ADMIN_ROLE_KEYS = ["chairman", "senior_leader", "junior_admin", "members_admin"]
+export const ADMIN_ROLE_KEYS = ["chairman", "senior_leader", "junior_admin", "members_admin", "events_coordinator"]
 
 /** Roles a Chairman may grant (self-service beyond this is not allowed). */
 export const ASSIGNABLE_ROLE_KEYS = ROLE_KEYS
