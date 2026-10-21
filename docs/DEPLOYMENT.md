@@ -126,6 +126,35 @@ survive together; see *Uploads survive the disk* below.
 | --- | --- |
 | `SESSION_COOKIE_SECURE=true` | Session cookie only over https (Render terminates TLS). |
 | `NODE_ENV` | Render sets `production`; no need to change. |
+| `PUBLIC_SITE_URL` | Optional. The site's own public address, used for the `canonical` links, the `og:url` tags and the `Sitemap:` line in `robots.txt`. Defaults to `https://la-porte-ador.onrender.com`. **Set this if the site ever moves to its own domain** (e.g. `https://laportedor.org`) — otherwise every canonical URL would still point at the old address, which tells Google the real page is elsewhere. |
+| `PUBLIC_YOUTUBE_URL` | Optional. The choir's YouTube channel address, published as `sameAs` in the `MusicGroup` structured data so search engines can link the choir to its channel. |
+
+### Search engines
+
+The public site is a client-rendered React app, so the HTML the server sends by
+default is a ~1.4 KB shell with an empty `<div id="root">` and one identical
+`<title>` on every URL. A crawler fetching `/about` and `/events` would see two
+empty documents that look the same.
+
+The server therefore renders the genuinely public pages — `/`, `/about`,
+`/events`, `/music`, `/contact` and the gallery pages — to real HTML, built from
+the same data the public JSON endpoints serve, and answers `robots.txt` and
+`sitemap.xml` as themselves. The rendered content sits **inside** `#root`, so
+React replaces it on mount: a visitor gets the app, a crawler (or a visitor whose
+bundle is slow on a sleeping instance) gets readable content.
+
+Only pages listed in `publicPages()` (`server/src/services/seo.ts`) are rendered
+and advertised. Everything else — `/app`, `/login`, `/admin`, `/setup`,
+invitation and reset links, `/checkin`, and every `/api` route — is disallowed in
+`robots.txt` and never appears in the sitemap. A URL that is neither a public
+page nor a real client route is answered with **404**, not the app shell: a 200
+for every address is a "soft 404" and teaches a search engine that the whole site
+is a duplicate of the home page.
+
+Adding a new public page therefore takes two deliberate edits: add it to
+`publicPages()` and (for a client-rendered page) to the exact route list in
+`server/src/routes/seo.ts`. This is on purpose — a new private route cannot leak
+into the sitemap by accident.
 
 ## First boot and the four administrators
 

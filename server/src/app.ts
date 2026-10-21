@@ -23,6 +23,7 @@ import { membersRouter } from "./routes/members.js"
 import { messagesRouter } from "./routes/messages.js"
 import { notificationsRouter } from "./routes/notifications.js"
 import { publicRouter } from "./routes/public.js"
+import { isClientRoute, seoRouter } from "./routes/seo.js"
 import { pushRouter } from "./routes/push.js"
 import { reportsRouter } from "./routes/reports.js"
 import { rolesRouter } from "./routes/roles.js"
@@ -111,6 +112,12 @@ export function createApp(): Express {
 
   app.use("/api", notFoundHandler)
 
+  // Search-engine surface: robots.txt, sitemap.xml and the public pages rendered
+  // as real HTML. Mounted before the SPA fallback so none of them is answered
+  // with the app shell — which is what made every URL look identical to a
+  // crawler. See services/seo.ts.
+  if (fs.existsSync(webDistDir)) app.use(seoRouter)
+
   // Single-page application fallback.
   if (fs.existsSync(webDistDir)) {
     // The service worker is served with no caching on purpose: a stale copy is
@@ -127,6 +134,11 @@ export function createApp(): Express {
     app.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "HEAD") return next()
       if (req.path.startsWith("/api/") || req.path.startsWith("/media/")) return next()
+      // Only paths the app actually routes are served the shell. Everything else
+      // falls through to the real 404 below: answering 200 with the shell for any
+      // URL is a "soft 404", which teaches a search engine that every page on the
+      // site is a duplicate of the home page.
+      if (!isClientRoute(req.path)) return next()
       res.sendFile(path.join(webDistDir, "index.html"))
     })
   }
