@@ -26,12 +26,32 @@ export interface DefaultAccount {
   password: string
   /** Optional profile photo served by the web app (e.g. `/assets/avatars/chairman.png`). */
   avatarPath: string | null
+  /**
+   * True when `password` came from the environment rather than the repository.
+   *
+   * This decides whether the account is forced to choose its own password at
+   * first sign-in in production. A password published in the repository is not
+   * secret, so an account created with it must change it; a password supplied by
+   * the deployment is the operator's own choice and is trusted as-is. It matters
+   * whenever the two happen to be equal, which is exactly the case when an
+   * operator deliberately sets the environment to the same value as the code.
+   */
+  passwordFromEnv?: boolean
 }
 
 /**
- * Baseline administrator accounts. Password placeholders satisfy the same strength
- * policy the API enforces (>=10 chars, upper + lower + digit, no predictable words).
- * Replace them via environment variables before a public launch.
+ * Baseline administrator accounts.
+ *
+ * All five share one password by choice: the choir's administrators sign in from
+ * a phone at a rehearsal, and one password they all know is worth more to them
+ * than five they have to look up. The environment variables in
+ * `RENDER-ENV.txt` set the same value on the live service.
+ *
+ * Because this value is published in the repository, an account created with it
+ * in production is normally forced to choose its own at first sign-in. The live
+ * deployment avoids that by supplying the password through
+ * `<ROLE>_PASSWORD`, and environment passwords are trusted and never force a
+ * change.
  */
 export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
   {
@@ -40,7 +60,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
     groupId: null,
     email: "chairman@laportedor.local",
     displayName: "Chairman",
-    password: "ChairmanLogin!2026",
+    password: "Jeanluc22!",
     avatarPath: "/assets/avatars/chairman.png",
   },
   {
@@ -49,7 +69,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
     groupId: null,
     email: "senior.admin@laportedor.local",
     displayName: "Senior Administrator",
-    password: "SeniorAdminLogin!2026",
+    password: "Jeanluc22!",
     avatarPath: null,
   },
   {
@@ -58,7 +78,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
     groupId: null,
     email: "junior.admin@laportedor.local",
     displayName: "Junior Administrator",
-    password: "JuniorAdminLogin!2026",
+    password: "Jeanluc22!",
     avatarPath: "/assets/avatars/junior-admin.jpg",
   },
   {
@@ -67,7 +87,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
     groupId: null,
     email: "members.admin@laportedor.local",
     displayName: "Members Administrator",
-    password: "MembersAdminLogin!2026",
+    password: "Jeanluc22!",
     avatarPath: "/assets/avatars/members-admin.jpg",
   },
   {
@@ -76,7 +96,7 @@ export const DEFAULT_ACCOUNTS: DefaultAccount[] = [
     groupId: null,
     email: "events.coordinator@laportedor.local",
     displayName: "Events Coordinator",
-    password: "EventsCoordinatorLogin!2026",
+    password: "Jeanluc22!",
     avatarPath: null,
   },
 ]
@@ -99,11 +119,13 @@ export function defaultAccounts(env: NodeJS.ProcessEnv = process.env): DefaultAc
   return DEFAULT_ACCOUNTS.map((account) => {
     const prefix = ACCOUNT_ENV_PREFIX[account.roleKey]
     if (!prefix) return { ...account }
+    const envPassword = env[`${prefix}_PASSWORD`]
     return {
       ...account,
       email: env[`${prefix}_EMAIL`]?.trim() || account.email,
       displayName: env[`${prefix}_NAME`]?.trim() || account.displayName,
-      password: env[`${prefix}_PASSWORD`] || account.password,
+      password: envPassword || account.password,
+      passwordFromEnv: Boolean(envPassword),
     }
   })
 }

@@ -158,10 +158,18 @@ This creates — or resets — the **four real administrator accounts** for the 
 
 | Role | Email | Password | Sign-in page |
 | --- | --- | --- | --- |
-| **Chairman** (oversees all three groups, heads the Founders section) | `chairman@laportedor.local` | `ChairmanLogin!2026` | `/admin/login` |
-| Senior Leader (Senior group) | `senior.admin@laportedor.local` | `SeniorAdminLogin!2026` | `/admin/login` |
-| Junior Administrator (Junior group) | `junior.admin@laportedor.local` | `JuniorAdminLogin!2026` | `/admin/login` |
-| Members Administrator (Members/Support group) | `members.admin@laportedor.local` | `MembersAdminLogin!2026` | `/admin/login` |
+| **Chairman** (oversees all three groups, heads the Founders section) | `chairman@laportedor.local` | `Jeanluc22!` | `/admin/login` |
+| Senior Leader (Senior group) | `senior.admin@laportedor.local` | `Jeanluc22!` | `/admin/login` |
+| Junior Administrator (Junior group) | `junior.admin@laportedor.local` | `Jeanluc22!` | `/admin/login` |
+| Members Administrator (Members/Support group) | `members.admin@laportedor.local` | `Jeanluc22!` | `/admin/login` |
+| **Events Coordinator** (runs the events programme across all groups) | `events.coordinator@laportedor.local` | `Jeanluc22!` | `/admin/login` |
+
+All five administrators share one password by choice: they sign in from a phone at a rehearsal, and one
+password they all know is worth more than five they have to look up. Because that value is published
+here, an account created with it is normally **forced to choose its own** at first sign-in in
+production — the live service avoids that by supplying it through `<ROLE>_PASSWORD`, and a password
+supplied by the environment is trusted and never forces a change. A fresh deployment with no
+environment variables gets the accounts but must set real passwords at first sign-in.
 
 The Chairman, Junior and Members accounts are given the matching profile photo from
 `web/public/assets/avatars/` (`chairman.png`, `junior-admin.jpg`, `members-admin.jpg`); the Senior
@@ -169,7 +177,10 @@ Leader account has no photo yet — add one from **Administration → Accounts**
 group administrator handles their own group's applications and members; the **Chairman sees
 everything happening across all three groups**, can act anywhere, and is the only account with
 organisation-wide settings, integrations and audit access. A Google Form application for the Senior
-group lands in the Senior Leader's queue (the Chairman is notified too).
+group lands in the Senior Leader's queue (the Chairman is notified too). The **Events Coordinator**
+answers to no group: it owns the events programme — who each event is for, whether it costs money,
+who has paid, and who comes in at the door — but cannot manage members, applications or settings.
+The Chairman has full events access as well.
 
 **Override the credentials per deployment** without editing code — set any of these before running
 `seed:admins` (or on the server before first boot):
@@ -180,9 +191,28 @@ group lands in the Senior Leader's queue (the Chairman is notified too).
 | `SENIOR_ADMIN_EMAIL`, `SENIOR_ADMIN_NAME`, `SENIOR_ADMIN_PASSWORD` | Senior Leader. |
 | `JUNIOR_ADMIN_EMAIL`, `JUNIOR_ADMIN_NAME`, `JUNIOR_ADMIN_PASSWORD` | Junior administrator. |
 | `MEMBERS_ADMIN_EMAIL`, `MEMBERS_ADMIN_NAME`, `MEMBERS_ADMIN_PASSWORD` | Members administrator. |
+| `EVENTS_COORDINATOR_EMAIL`, `EVENTS_COORDINATOR_NAME`, `EVENTS_COORDINATOR_PASSWORD` | Events Coordinator. |
 
-> **These are sample credentials.** Change them — by re-running with the environment overrides above,
-> or from **Administration → Accounts** after signing in — before any real deployment.
+> **These credentials are published.** Change them — by supplying the environment overrides above, or
+> from **Administration → Accounts** after signing in — before any real deployment. An account that
+> still carries the value from this file is forced to choose its own password at first sign-in; one
+> given its password through the environment is trusted and is not.
+
+### Setting a password for administrators who already exist
+
+A boot only ever *creates* accounts that are missing; it will not overwrite an existing account's
+password, because that password may have been changed deliberately and a restart must never undo it.
+To deliberately give every administrator account a password — for example to move five accounts onto
+one shared value — use the one-time reset:
+
+1. Set `ADMIN_PASSWORD_RESET_TOKEN` to any long random string, and `ADMIN_PASSWORD_RESET_PASSWORD` to
+   the password you want, then deploy.
+2. Call it once: `curl -X POST <site>/api/admin-reset -H 'content-type: application/json' -d '{"token":"<the token>"}'`
+3. It reports which accounts changed and then **refuses to run again** — the use is recorded in the
+   database, so a restart cannot re-arm it. Remove both variables afterwards.
+
+`GET <site>/api/admin-reset/status` says whether the deployment is armed and whether the single use has
+been spent. While `ADMIN_PASSWORD_RESET_TOKEN` is unset, the endpoint does nothing at all.
 
 Administrators sign in at **`/admin/login`** (linked from the public site as "Admin"); everyone else
 signs in at **`/login`**. After signing in, all land on the role-appropriate dashboard at `/app`.

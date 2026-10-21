@@ -8,6 +8,7 @@ import { attachAuth } from "./middleware/auth.js"
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js"
 import { generalRateLimit } from "./middleware/rate-limit.js"
 import { announcementsRouter } from "./routes/announcements.js"
+import { adminResetRouter } from "./routes/admin-reset.js"
 import { applicationsRouter } from "./routes/applications.js"
 import { attendanceRouter } from "./routes/attendance.js"
 import { auditRouter } from "./routes/audit.js"
@@ -69,6 +70,9 @@ export function createApp(): Express {
 
   app.use("/api/setup", setupRouter)
   app.use("/api/auth", authRouter)
+  // Armed only when the deployment supplies ADMIN_PASSWORD_RESET_TOKEN; otherwise
+  // every call is refused. See services/admin-password-reset.ts.
+  app.use("/api/admin-reset", adminResetRouter)
   app.use("/api/public", publicRouter)
   app.use("/api/dashboard", dashboardRouter)
   app.use("/api/applications", applicationsRouter)

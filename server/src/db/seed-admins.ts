@@ -42,9 +42,14 @@ function samplePasswordFor(roleKey: string): string | undefined {
 /**
  * 1 when the account still carries the public sample password from the repository:
  * in production such an account must choose its own password at first sign-in.
- * Passwords supplied through the environment are trusted and never force a change.
+ *
+ * A password supplied through the environment is the deployment's own and is
+ * trusted, even when it happens to equal the sample — otherwise an operator who
+ * deliberately sets the environment to the documented value would silently
+ * reintroduce the forced change they were trying to avoid.
  */
 function mustChangeOnLogin(account: DefaultAccount): number {
+  if (account.passwordFromEnv) return 0
   const sample = samplePasswordFor(account.roleKey)
   return isProd && sample !== undefined && account.password === sample ? 1 : 0
 }
