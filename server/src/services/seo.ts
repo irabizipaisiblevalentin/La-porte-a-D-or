@@ -55,6 +55,38 @@ export function summarise(value: string, max = 158): string {
   return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.]$/, "")}…`
 }
 
+/**
+ * The search-console ownership tags, taken from the environment.
+ *
+ * A search console proves you own a site by asking you to publish a token on it —
+ * a `<meta name="google-site-verification">` tag for Google, and the same shape
+ * for Bing (`msvalidate.01`) and Yandex. Reading them from the environment means
+ * verifying the site, and re-verifying it after a change, needs no code edit and
+ * no deploy of the repository — only an environment change on Render.
+ *
+ * The values are the token alone (what goes in the tag's `content`), NOT the
+ * whole tag: pasting a whole tag would end up escaped inside an attribute.
+ *
+ * Every tag Google generates for a site is stable, but if a token is ever
+ * replaced only the new one is emitted — an old tag and a new one side by side
+ * would be a lie about which token is current.
+ */
+export function verificationTags(env: NodeJS.ProcessEnv = process.env): string[] {
+  const sources: Array<[string, string | undefined]> = [
+    ["google-site-verification", env.GOOGLE_SITE_VERIFICATION],
+    ["msvalidate.01", env.BING_SITE_VERIFICATION],
+  ]
+  return sources
+    .map(([name, raw]) => [name, raw?.trim()] as const)
+    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]))
+    // Quotes and angle brackets cannot appear in a token; strip them rather than
+    // let pasted-tag fragments break out of the attribute.
+    .map(([name, token]) => {
+      const safe = token.replace(/["'<>]/g, "")
+      return `<meta name="${name}" content="${safe}" />`
+    })
+}
+
 function settingValue(key: string): string {
   return one<{ value: string }>("SELECT value FROM app_settings WHERE key = ?", key)?.value ?? ""
 }

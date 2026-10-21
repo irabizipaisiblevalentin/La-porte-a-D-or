@@ -128,6 +128,8 @@ survive together; see *Uploads survive the disk* below.
 | `NODE_ENV` | Render sets `production`; no need to change. |
 | `PUBLIC_SITE_URL` | Optional. The site's own public address, used for the `canonical` links, the `og:url` tags and the `Sitemap:` line in `robots.txt`. Defaults to `https://la-porte-ador.onrender.com`. **Set this if the site ever moves to its own domain** (e.g. `https://laportedor.org`) — otherwise every canonical URL would still point at the old address, which tells Google the real page is elsewhere. |
 | `PUBLIC_YOUTUBE_URL` | Optional. The choir's YouTube channel address, published as `sameAs` in the `MusicGroup` structured data so search engines can link the choir to its channel. |
+| `GOOGLE_SITE_VERIFICATION` | Optional. The **value only** (not the whole tag) from Google Search Console → *Verify ownership* → *HTML tag*, i.e. the part inside `content="..."`. Published as `<meta name="google-site-verification" content="..." />` on every page, so verifying — and re-verifying after a change — is an environment change rather than a code edit. **Do not remove it once verified**: Google re-checks periodically and can revoke ownership. |
+| `BING_SITE_VERIFICATION` | Optional. The same idea for Bing Webmaster Tools, published as `<meta name="msvalidate.01" content="..." />`. |
 
 ### Search engines
 

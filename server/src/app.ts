@@ -23,7 +23,7 @@ import { membersRouter } from "./routes/members.js"
 import { messagesRouter } from "./routes/messages.js"
 import { notificationsRouter } from "./routes/notifications.js"
 import { publicRouter } from "./routes/public.js"
-import { isClientRoute, seoRouter } from "./routes/seo.js"
+import { isClientRoute, injectVerificationTags, seoRouter } from "./routes/seo.js"
 import { pushRouter } from "./routes/push.js"
 import { reportsRouter } from "./routes/reports.js"
 import { rolesRouter } from "./routes/roles.js"
@@ -139,7 +139,15 @@ export function createApp(): Express {
       // URL is a "soft 404", which teaches a search engine that every page on the
       // site is a duplicate of the home page.
       if (!isClientRoute(req.path)) return next()
-      res.sendFile(path.join(webDistDir, "index.html"))
+      // Read rather than sendFile so search-console ownership tags can be added
+      // to private pages too — the console may fetch any URL on the site.
+      try {
+        const shell = fs.readFileSync(path.join(webDistDir, "index.html"), "utf8")
+        res.setHeader("Cache-Control", "no-cache")
+        res.type("html").send(injectVerificationTags(shell))
+      } catch {
+        res.sendFile(path.join(webDistDir, "index.html"))
+      }
     })
   }
 

@@ -13,7 +13,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Router } from "express"
 import { webDistDir } from "../config.js"
-import { bodyFor, escapeHtml, metaFor, renderContext, robotsTxt, siteOrigin, sitemapXml, structuredData } from "../services/seo.js"
+import { bodyFor, escapeHtml, metaFor, renderContext, robotsTxt, siteOrigin, sitemapXml, structuredData, verificationTags } from "../services/seo.js"
 
 export const seoRouter: Router = Router()
 
@@ -73,6 +73,9 @@ export function renderPublicPage(pathname: string): string | null {
   const head = [
     `<link rel="canonical" href="${escapeHtml(canonical)}" />`,
     `<meta name="robots" content="index, follow, max-image-preview:large" />`,
+    // Search-console ownership tags, so verifying the site (and re-verifying it
+    // after a change) is an environment change rather than a code change.
+    ...verificationTags(),
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="${escapeHtml("Chorale La Porte d'Or")}" />`,
     `<meta property="og:title" content="${escapeHtml(meta.title)}" />`,
@@ -180,4 +183,23 @@ export function isClientRoute(pathname: string): boolean {
   if (EXACT_PUBLIC_ROUTES.includes(clean)) return true
   if (APP_PREFIX.test(clean)) return true
   return PARAMETERISED_ROUTES.some((pattern) => pattern.test(clean))
+}
+
+/**
+ * Injects the search-console ownership tags into any HTML the app serves.
+ *
+ * A search console proves ownership by fetching one URL and looking for its tag.
+ * Which URL it fetches is not always the homepage — and the app serves the React
+ * shell for `/login`, `/setup` and every `/app` page. Putting the tag into the
+ * shell as well means verification succeeds whichever URL the console chooses,
+ * instead of depending on it picking a page that happens to be server-rendered.
+ *
+ * When no token is configured this returns the HTML untouched, so the common
+ * case costs nothing.
+ */
+export function injectVerificationTags(html: string): string {
+  const tags = verificationTags()
+  if (tags.length === 0) return html
+  if (!html.includes("</head>")) return html
+  return html.replace(/<\/head>/i, `  ${tags.join("\n    ")}\n  </head>`)
 }

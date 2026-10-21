@@ -31,8 +31,8 @@ const { seed } = await import("../../src/db/seed.js")
 const { seedDefaultAccounts, defaultAccounts } = await import("../../src/db/seed-admins.js")
 const { createApp } = await import("../../src/app.js")
 const { nowIso } = await import("../../src/lib/time.js")
-const { escapeHtml, summarise, publicPages, robotsTxt, sitemapXml } = await import("../../src/services/seo.js")
-const { isClientRoute } = await import("../../src/routes/seo.js")
+const { escapeHtml, summarise, publicPages, robotsTxt, sitemapXml, verificationTags } = await import("../../src/services/seo.js")
+const { isClientRoute, injectVerificationTags } = await import("../../src/routes/seo.js")
 
 let server: Server
 let base: string
@@ -216,8 +216,7 @@ test("every sitemap entry is a page the server actually serves", async () => {
   }
 })
 
-test("the page list and robots agree on what is public", () => {
-  const indexable = publicPages().filter((page) => page.indexable)
+test("the page list and robots agree on what is public", () => {  const indexable = publicPages().filter((page) => page.indexable)
   assert.ok(indexable.length >= 6)
   // Compare whole directive lines: "Disallow: /app/" contains "Disallow: /", so a
   // substring check would wrongly report the home page as disallowed.
@@ -233,4 +232,47 @@ test("the page list and robots agree on what is public", () => {
   // Sanity: the sitemap carries exactly the indexable pages.
   const count = [...sitemapXml().matchAll(/<loc>/g)].length
   assert.equal(count, indexable.length)
+})
+
+test("a search-console token is published on every page, when configured", async () => {
+  // Unset: nothing is emitted, so the common case costs nothing and no empty
+  // tag is ever served.
+  assert.deepEqual(verificationTags({}), [])
+
+  // The token is what goes inside `content`, taken from the environment so
+  // verifying the site needs no code change.
+  const tags = verificationTags({ GOOGLE_SITE_VERIFICATION: "abc123token-_" })
+  assert.deepEqual(tags, ['<meta name="google-site-verification" content="abc123token-_" />'])
+  assert.deepEqual(verificationTags({ BING_SITE_VERIFICATION: "bing-token" }), [
+    '<meta name="msvalidate.01" content="bing-token" />',
+  ])
+
+  // A token is never allowed to break out of its attribute, even if someone
+  // pastes fragments of the whole tag instead of just the value.
+  const hostile = verificationTags({ GOOGLE_SITE_VERIFICATION: 'x"><script>alert(1)</script>' })
+  assert.equal(hostile.length, 1)
+  // Check the attribute value itself: the tag's own markup legitimately contains
+  // `<` and `"`, so the whole string cannot be tested for them.
+  const value = /content="([^"]*)"/.exec(hostile[0])?.[1] ?? ""
+  assert.doesNotMatch(value, /[<>"']/, "no tag-breaking characters survive: " + value)
+})
+
+test("the token reaches every served page, including private ones", () => {
+  // The token is read from the environment at call time, so a test can set it
+  // without re-booting the server.
+  const shell = '<html><head><title>x</title></head><body><div id="root"></div></body></html>'
+  const previous = process.env.GOOGLE_SITE_VERIFICATION
+  try {
+    process.env.GOOGLE_SITE_VERIFICATION = "verify-me-123"
+    const injected = injectVerificationTags(shell)
+    assert.match(injected, /<meta name="google-site-verification" content="verify-me-123" \/>/)
+    // ...and the app is otherwise untouched.
+    assert.match(injected, /<div id="root"><\/div>/)
+  } finally {
+    if (previous === undefined) delete process.env.GOOGLE_SITE_VERIFICATION
+    else process.env.GOOGLE_SITE_VERIFICATION = previous
+  }
+
+  // With no token configured, HTML passes through byte for byte.
+  assert.equal(injectVerificationTags(shell), shell)
 })
