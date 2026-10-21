@@ -182,6 +182,11 @@ export function DisciplinePage() {
   const { can } = useAuth()
   const canDiscipline = can("discipline.write")
   const canRecognition = can("recognition.write")
+  // An administrator with group or organisation scope manages records. A member
+  // holds `discipline.read` only at `own` scope: they come here to see what was
+  // recorded about them, and must not be shown a member picker or write buttons.
+  const canManage = can("discipline.read", "global") || can("discipline.read", "senior") ||
+    can("discipline.read", "junior") || can("discipline.read", "members")
 
   const [kind, setKind] = useState("negative")
   const [groupId, setGroupId] = useState("")
@@ -356,12 +361,16 @@ export function DisciplinePage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Discipline & recognition"
-        description="Log behaviour concerns and celebrate members' achievements, all from one place."
+        title={canManage ? "Discipline & recognition" : "My discipline & recognition"}
+        description={
+          canManage
+            ? "Log behaviour concerns and celebrate members' achievements. For discipline, select a member in your group, enter the fault and punishment/action taken."
+            : "Everything recorded about you: faults and their punishment or action taken, and recognition you have earned."
+        }
         actions={
-          activeKindCanWrite ? (
+          canManage && activeKindCanWrite ? (
             <Button variant="gold" icon={<Plus size={16} />} onClick={openRecord}>
-              {kind === "positive" ? "Record recognition" : "Record discipline"}
+              {kind === "positive" ? "Record recognition" : "Record fault & punishment"}
             </Button>
           ) : null
         }
@@ -379,8 +388,9 @@ export function DisciplinePage() {
         }}
       />
 
-      <Card>
-        <CardBody className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {canManage ? (
+        <Card>
+          <CardBody className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Group" htmlFor="d-group" hint={meta.error ? "Groups could not be loaded." : undefined}>
             <Select
               id="d-group"
@@ -452,30 +462,41 @@ export function DisciplinePage() {
           </Field>
         </CardBody>
       </Card>
+      ) : null}
 
       <Card>
         <CardHeader
           title={kind === "positive" ? "Recognition records" : "Discipline records"}
-          description="Select a row to update its status, action taken or follow-up notes."
+          description={
+            canManage
+              ? "Select a member in your group, record the fault and punishment/action taken, then notify them."
+              : "These are your own records. Each one was also sent to your notifications."
+          }
           actions={
-            activeKindCanWrite ? (
-              <Button variant="outline" size="sm" icon={<Plus size={15} />} onClick={openRecord}>
-                {kind === "positive" ? "Record recognition" : "Record discipline"}
+            canManage && activeKindCanWrite ? (
+              <Button variant="gold" size="sm" icon={<Plus size={15} />} onClick={openRecord}>
+                {kind === "positive" ? "Record recognition" : "Record fault & punishment"}
               </Button>
             ) : null
           }
         />
         <CardBody className="pt-0">
           <DataTable
-            columns={columns}
+            columns={canManage ? columns : columns.filter((column) => column.key !== "member")}
             rows={records.data?.items ?? []}
             rowKey={(row) => row.id}
             loading={records.loading}
             error={records.error?.message ?? null}
             emptyTitle={kind === "positive" ? "No recognition records" : "No discipline records"}
-            emptyDescription="Adjust the filters, or record a new entry."
+            emptyDescription={
+              canManage
+                ? "Adjust the filters, or record a new entry."
+                : kind === "positive"
+                  ? "You have no recognition records yet."
+                  : "You have no discipline records. That is a good thing."
+            }
             emptyAction={
-              activeKindCanWrite ? (
+              canManage && activeKindCanWrite ? (
                 <Button variant="gold" icon={<Plus size={16} />} onClick={openRecord}>
                   {kind === "positive" ? "Record recognition" : "Record discipline"}
                 </Button>
@@ -498,7 +519,7 @@ export function DisciplinePage() {
       <Modal
         open={showRecord}
         onClose={() => setShowRecord(false)}
-        title={kind === "positive" ? "Record recognition" : "Record discipline"}
+        title={kind === "positive" ? "Record recognition" : "Record fault & punishment"}
         size="md"
         footer={
           <>
@@ -512,14 +533,14 @@ export function DisciplinePage() {
               loading={createRecord.saving}
               disabled={!recordForm.member || !recordForm.categoryId}
             >
-              Save record
+              Save & Notify member
             </Button>
           </>
         }
       >
         <form id="record-form" className="flex flex-col gap-4" onSubmit={submitRecord}>
           <FormError message={createRecord.error?.message} />
-          <Field label="Member" required error={createRecord.error?.fields?.memberId}>
+          <Field label="Member (select from your group)" required error={createRecord.error?.fields?.memberId}>
             <MemberPicker
               selected={recordForm.member}
               onChange={(member) => setRecordForm({ ...recordForm, member })}
@@ -551,23 +572,27 @@ export function DisciplinePage() {
               />
             </Field>
           </div>
-          <Field label="Description" required error={createRecord.error?.fields?.description} htmlFor="r-description">
+          <Field label={kind === "positive" ? "What was achieved" : "The fault"} required error={createRecord.error?.fields?.description} htmlFor="r-description">
             <Textarea
               id="r-description"
               rows={3}
               value={recordForm.description}
               onChange={(event) => setRecordForm({ ...recordForm, description: event.target.value })}
-              placeholder="Describe what happened or what was achieved."
+              placeholder={kind === "positive" ? "Describe what the member did well." : "Describe the fault that occurred."}
               required
             />
           </Field>
-          <Field label="Action taken" error={createRecord.error?.fields?.actionTaken} htmlFor="r-action">
+          <Field
+            label={kind === "positive" ? "Recognition given" : "Punishment / action taken"}
+            error={createRecord.error?.fields?.actionTaken}
+            htmlFor="r-action"
+          >
             <Textarea
               id="r-action"
               rows={2}
               value={recordForm.actionTaken}
               onChange={(event) => setRecordForm({ ...recordForm, actionTaken: event.target.value })}
-              placeholder="Optional follow-up action."
+              placeholder={kind === "positive" ? "e.g. Praise, award, certificate" : "e.g. Warning, fine, suspension, extra duty"}
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">

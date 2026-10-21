@@ -7,6 +7,7 @@ import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { requireAuth, requirePermission } from "../middleware/auth.js"
 import { id } from "../lib/security.js"
 import { isValidDateString, nowIso } from "../lib/time.js"
+import { notifyMany } from "../services/notifications.js"
 
 export const trainingRouter: Router = Router()
 
@@ -32,6 +33,46 @@ const participantsSchema = z.object({
     }),
   ).max(2000),
 })
+
+/** Plain words for a training mark, used in the message a member receives. */
+const TRAINING_STATUS_LABELS: Record<string, string> = {
+  present: "Present",
+  late: "Late",
+  absent: "Absent",
+  excused: "Excused",
+  pending: "Not yet marked",
+}
+
+/**
+ * Tells each participant how their training was recorded.
+ *
+ * A member who is still `pending` and has not completed anything has nothing to
+ * hear about, so they are skipped: a message saying "nothing happened" trains
+ * people to ignore the next one. Everyone else gets exactly one message.
+ */
+function notifyTrainingParticipants(
+  byMember: Map<string, { attendance: string; completed: number }>,
+  training: { title: string; date: string },
+): void {
+  const messages = []
+  for (const [memberId, record] of byMember) {
+    if (record.attendance === "pending" && record.completed === 0) continue
+    const account = one<{ id: string }>("SELECT user_id AS id FROM members WHERE user_id IS NOT NULL AND id = ?", memberId)
+    if (!account?.id) continue
+    const outcome =
+      record.completed === 1
+        ? "Completed"
+        : (TRAINING_STATUS_LABELS[record.attendance] ?? "Updated")
+    messages.push({
+      userId: account.id,
+      type: "training",
+      title: "Training attendance updated",
+      body: `${training.title} (${training.date}) — ${outcome}.`,
+      link: "/app/training",
+    })
+  }
+  notifyMany(messages)
+}
 
 interface TrainingRow {
   id: string
@@ -234,6 +275,10 @@ trainingRouter.put("/:id/participants", requireAuth, requirePermission("training
     }
     run("UPDATE training_sessions SET updated_at = ? WHERE id = ?", nowIso(), training.id)
   })
+
+  // Tell each participant how they were marked, so training attendance reaches
+  // them the same way rehearsal attendance does. One message per member.
+  notifyTrainingParticipants(byMember, { title: training.title, date: training.date })
 
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,

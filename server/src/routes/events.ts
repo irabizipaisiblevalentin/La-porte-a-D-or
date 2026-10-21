@@ -10,6 +10,7 @@ import { id } from "../lib/security.js"
 import { isValidDateString, isValidTimeString, nowIso } from "../lib/time.js"
 import { imageUpload } from "../middleware/upload.js"
 import { deleteFile, saveUpload, type FileRow } from "../services/uploads.js"
+import { notifyMany } from "../services/notifications.js"
 import {
   audienceVisibilityClause,
   checkIn,
@@ -953,6 +954,31 @@ eventsRouter.put("/:id/roll-call", requireAuth, requirePermission("events.checki
     }
     run("UPDATE attendance_sessions SET updated_at = ? WHERE id = ?", timestamp, session!.id)
   })
+
+  // Tell each marked member, so a roll-call reaches them just as a rehearsal's
+  // attendance does. One message per member.
+  const accountRows = new Map<string, string>()
+  const messages = []
+  const seen = new Set<string>()
+  for (const entry of input.records) {
+    if (seen.has(entry.memberId)) continue
+    seen.add(entry.memberId)
+    let accountId = accountRows.get(entry.memberId)
+    if (accountId === undefined) {
+      accountId = one<{ id: string }>("SELECT user_id AS id FROM members WHERE user_id IS NOT NULL AND id = ?", entry.memberId)?.id ?? ""
+      accountRows.set(entry.memberId, accountId)
+    }
+    if (!accountId) continue
+    const label = entry.status === "present" ? "Present" : entry.status === "late" ? "Late" : entry.status === "excused" ? "Excused" : "Absent"
+    messages.push({
+      userId: accountId,
+      type: "attendance",
+      title: "Attendance marked",
+      body: `${event.name} (${event.date}) — ${label}.`,
+      link: "/app/attendance",
+    })
+  }
+  notifyMany(messages)
 
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,

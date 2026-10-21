@@ -79,8 +79,17 @@ interface AttendanceSession {
   markedCount: number | null
   recorderId: string | null
   notes: string | null
+  eventId: string | null
   createdAt: string
   updatedAt: string
+}
+
+interface EventOption {
+  id: string
+  name: string
+  date: string
+  audience: string
+  groupId: string | null
 }
 
 interface AttendanceSummary {
@@ -104,6 +113,7 @@ interface SessionBody {
   endTime?: string | null
   location?: string | null
   targetGroupId?: string | null
+  eventId?: string | null
   notes?: string | null
 }
 
@@ -115,6 +125,7 @@ interface SessionFormState {
   endTime: string
   location: string
   targetGroupId: string
+  eventId: string
   notes: string
 }
 
@@ -148,6 +159,9 @@ export function AttendancePage() {
 
   const meta = useQuery<Meta>("/members/meta")
   const activityTypes = useQuery<{ activityTypes: string[] }>("/attendance/activity-types")
+  // Upcoming events, so a rehearsal/concert roll-call can be tied to the event
+  // it belongs to instead of living as a separate, unconnected session.
+  const events = useQuery<Page<EventOption>>("/events?pageSize=100")
 
   const sessions = useQuery<Page<AttendanceSession>>(
     `/attendance/sessions${toQuery({ activityType, groupId, from, to, page })}`,
@@ -168,6 +182,7 @@ export function AttendancePage() {
     endTime: "",
     location: "",
     targetGroupId: "",
+    eventId: "",
     notes: "",
   })
 
@@ -185,6 +200,7 @@ export function AttendancePage() {
       endTime: "",
       location: "",
       targetGroupId: groupId,
+      eventId: "",
       notes: "",
     })
     setShowNew(true)
@@ -200,6 +216,7 @@ export function AttendancePage() {
       endTime: form.endTime || null,
       location: form.location.trim() || null,
       targetGroupId: form.targetGroupId || null,
+      eventId: form.eventId || null,
       notes: form.notes.trim() || null,
     })
     if (result) {
@@ -213,6 +230,7 @@ export function AttendancePage() {
   const rows = sessions.data?.items ?? []
   const groups = meta.data?.groups ?? []
   const types = activityTypes.data?.activityTypes ?? []
+  const eventOptions = events.data?.items ?? []
 
   const columns: Column<AttendanceSession>[] = [
     {
@@ -517,6 +535,34 @@ export function AttendancePage() {
               {groups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Event (optional)"
+            hint="Tie this roll-call to an event, e.g. a concert or party. One roll-call per event."
+            error={create.error?.fields?.eventId}
+            htmlFor="new-event"
+          >
+            <Select
+              id="new-event"
+              value={form.eventId}
+              onChange={(event) => {
+                const chosen = eventOptions.find((option) => option.id === event.target.value)
+                setForm({
+                  ...form,
+                  eventId: event.target.value,
+                  // Adopt the event's name and date so the two cannot disagree.
+                  title: chosen ? chosen.name : form.title,
+                  date: chosen ? chosen.date : form.date,
+                })
+              }}
+            >
+              <option value="">No event — a normal rehearsal</option>
+              {eventOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name} ({option.date})
                 </option>
               ))}
             </Select>

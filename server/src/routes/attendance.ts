@@ -8,6 +8,7 @@ import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { id } from "../lib/security.js"
 import { isValidDateString, nowIso } from "../lib/time.js"
 import { assertGroupAccess, permittedGroupIds, requireAuth, requirePermission } from "../middleware/auth.js"
+import { notifyMany } from "../services/notifications.js"
 
 export const attendanceRouter: Router = Router()
 
@@ -27,6 +28,7 @@ interface SessionRow {
   target_group_id: string | null
   recorder_id: string | null
   notes: string | null
+  event_id: string | null
   created_at: string
   updated_at: string
 }
@@ -55,6 +57,43 @@ function canReachGroup(user: AuthUser, key: string, groupId: string | null): boo
   if (can(user, key, "global")) return true
   const scope = groupScope(groupId)
   return Boolean(scope && can(user, key, scope))
+}
+
+/** Plain words for a status, used in the message a member receives. */
+const STATUS_LABELS: Record<string, string> = {
+  present: "Present",
+  late: "Late",
+  absent: "Absent",
+  excused: "Excused",
+}
+
+/**
+ * Tells each member how they were marked, so the mark reaches them instead of
+ * waiting to be discovered. Sends at most one message per member — a roll-call
+ * that corrects the same person twice in one save must not notify twice.
+ *
+ * A member with no sign-in account is skipped: there is nowhere to deliver it.
+ */
+function notifyMembersOfAttendance(
+  marks: { memberId: string; status: string }[],
+  session: { title: string; date: string },
+): void {
+  const seen = new Set<string>()
+  const messages = []
+  for (const mark of marks) {
+    if (seen.has(mark.memberId)) continue
+    seen.add(mark.memberId)
+    const account = one<{ id: string }>("SELECT user_id AS id FROM members WHERE user_id IS NOT NULL AND id = ?", mark.memberId)
+    if (!account?.id) continue
+    messages.push({
+      userId: account.id,
+      type: "attendance",
+      title: "Attendance marked",
+      body: `${session.title} (${session.date}) — ${STATUS_LABELS[mark.status] ?? mark.status}.`,
+      link: "/app/attendance",
+    })
+  }
+  notifyMany(messages)
 }
 
 /**
@@ -100,6 +139,7 @@ function sessionDto(row: SessionRow | SessionListRow) {
     markedCount: listRow.marked_count ?? null,
     recorderId: row.recorder_id,
     notes: row.notes,
+    eventId: row.event_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -180,10 +220,50 @@ const sessionInputSchema = z.object({
   location: z.string().trim().max(200).nullable().optional(),
   locationId: z.string().trim().max(80).nullable().optional(),
   targetGroupId: z.enum(GROUP_IDS).nullable().optional(),
+  eventId: z.string().trim().max(80).nullable().optional(),
   notes: z.string().trim().max(4000).nullable().optional(),
 })
 
 const sessionPatchSchema = sessionInputSchema.partial()
+
+/**
+ * Ensures a session attached to an event points at a real event, and that the
+ * chosen group is one the event was actually addressed to.
+ *
+ * An event already knows who it is for: `event_audiences` lists the groups it was
+ * sent to (no rows means the whole choir), with `events.target_group_id` as the
+ * older single-group form. Letting a session pick a group the event does not reach
+ * would produce a roll-call of people who were never invited, and the mismatch
+ * would only surface later as "why is this member missing?".
+ *
+ * Returns the event's name and its audience, so the caller can use both.
+ */
+function assertEventForSession(
+  eventId: string,
+  targetGroupId: string | null,
+): { name: string; groupIds: string[] } {
+  const event = one<{ id: string; name: string; target_group_id: string | null }>(
+    "SELECT id, name, target_group_id FROM events WHERE id = ?",
+    eventId,
+  )
+  if (!event) throw notFound("That event does not exist.")
+
+  const audienceRows = all<{ group_id: string }>(
+    "SELECT group_id FROM event_audiences WHERE event_id = ?",
+    eventId,
+  )
+  let groupIds = audienceRows.map((row) => row.group_id)
+  // No audience rows means the whole choir; the single-group column is a fallback
+  // so events created before audiences existed still scope correctly.
+  if (groupIds.length === 0 && event.target_group_id) groupIds = [event.target_group_id]
+
+  // An event addressing specific groups must not take a roll-call for a group it
+  // never invited. A whole-choir event (no group list) reaches everyone.
+  if (targetGroupId && groupIds.length > 0 && !groupIds.includes(targetGroupId)) {
+    throw badRequest("This event was not addressed to that group. Choose a group the event is for.")
+  }
+  return { name: event.name, groupIds }
+}
 
 attendanceRouter.post("/sessions", requireAuth, requirePermission("attendance.write"), (req, res) => {
   const input = parse(sessionInputSchema, req.body)
@@ -193,21 +273,35 @@ attendanceRouter.post("/sessions", requireAuth, requirePermission("attendance.wr
     throw forbidden("Organisation-wide sessions require organisation-wide access.")
   }
 
+  const eventId = input.eventId || null
+  let eventName: string | null = null
+  if (eventId) {
+    eventName = assertEventForSession(eventId, input.targetGroupId ?? null).name
+    // One roll-call per event: reusing the event must reuse its existing session.
+    const existing = one<{ id: string }>(
+      "SELECT id FROM attendance_sessions WHERE event_id = ?",
+      eventId,
+    )
+    if (existing) {
+      throw badRequest(`"${eventName}" already has a roll-call. Open it instead of creating a second one.`)
+    }
+  }
+
   const timestamp = nowIso()
   const sessionId = id()
   run(
     `INSERT INTO attendance_sessions (id, title, activity_type, date, start_time, end_time, location, location_id,
-                                      target_group_id, recorder_id, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                      target_group_id, recorder_id, notes, event_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sessionId, input.title, input.activityType, input.date, input.startTime ?? null, input.endTime ?? null,
     input.location ?? null, input.locationId ?? null, input.targetGroupId ?? null, req.auth!.id,
-    input.notes ?? null, timestamp, timestamp,
+    input.notes ?? null, eventId, timestamp, timestamp,
   )
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,
     action: "attendance.session_create", entityType: "attendance_session", entityId: sessionId,
-    summary: `Attendance session "${input.title}" (${input.activityType}) created for ${input.targetGroupId ?? "the whole choir"}`,
-    detail: { date: input.date, targetGroupId: input.targetGroupId ?? null }, ip: req.ip,
+    summary: `Attendance session "${input.title}" (${input.activityType}) created for ${input.targetGroupId ?? "the whole choir"}${eventName ? ` for event "${eventName}"` : ""}`,
+    detail: { date: input.date, targetGroupId: input.targetGroupId ?? null, eventId }, ip: req.ip,
   })
   res.status(201).json({ session: sessionDto(getSession(sessionId)!) })
 })
@@ -282,6 +376,19 @@ attendanceRouter.patch("/sessions/:id", requireAuth, requirePermission("attendan
   if (input.locationId !== undefined) { fields.push("location_id = ?"); params.push(input.locationId ?? null) }
   if (input.targetGroupId !== undefined) { fields.push("target_group_id = ?"); params.push(input.targetGroupId) }
   if (input.notes !== undefined) { fields.push("notes = ?"); params.push(input.notes ?? null) }
+  if (input.eventId !== undefined) {
+    const nextEventId = input.eventId || null
+    if (nextEventId) {
+      assertEventForSession(nextEventId, (input.targetGroupId ?? session.target_group_id) || null)
+      const clash = one<{ id: string }>(
+        "SELECT id FROM attendance_sessions WHERE event_id = ? AND id <> ?",
+        nextEventId, session.id,
+      )
+      if (clash) throw badRequest("That event already has a roll-call. Open it instead.")
+    }
+    fields.push("event_id = ?")
+    params.push(nextEventId)
+  }
   if (fields.length === 0) throw badRequest("Provide at least one field to update.")
 
   fields.push("updated_at = ?")
@@ -364,6 +471,14 @@ attendanceRouter.put("/sessions/:id/records", requireAuth, requirePermission("at
       )
     }
   })
+
+  // Tell each marked member, so they see the mark on their own attendance page
+  // rather than having to ask. The same call mirrors it onto their devices.
+  const marked = input.records.map((entry) => ({
+    memberId: entry.memberId,
+    status: entry.status,
+  }))
+  notifyMembersOfAttendance(marked, session)
 
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,

@@ -140,5 +140,9 @@ test("singers and support members are limited to their own records plus shared r
     assert.equal(grants.has("settings.read"), false)
     assert.equal(grants.has("users.manage"), false)
     assert.equal(grants.has("application.decide"), false)
+    // Every member must be able to see what was recorded about them: their own
+    // attendance, and any fault or recognition that concerns them.
+    assert.equal(grants.get("attendance.read"), "own", `${key} should read its own attendance`)
+    assert.equal(grants.get("discipline.read"), "own", `${key} should read its own discipline record`)
   }
 })

@@ -276,23 +276,52 @@ export function AttendanceSessionPage() {
     },
     {
       key: "status",
-      header: "Status",
+      header: "Status (✓ Present / ✗ Absent)",
       render: (row) => {
         const value = marks[row.memberId]?.status ?? row.status
         return (
-          <Select
-            aria-label={`Attendance status for ${row.fullName}`}
-            value={value}
-            disabled={!canWrite}
-            onChange={(event) => setStatus(row.memberId, event.target.value)}
-            className="max-w-[10rem]"
-          >
-            {STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {STATUS_LABELS[status]}
-              </option>
-            ))}
-          </Select>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={value === "present" ? "gold" : "ghost"}
+              size="sm"
+              type="button"
+              disabled={!canWrite}
+              onClick={() => setStatus(row.memberId, "present")}
+              aria-label={`Mark ${row.fullName} present`}
+            >
+              ✓ Present
+            </Button>
+            <Button
+              variant={value === "absent" ? "danger" : "ghost"}
+              size="sm"
+              type="button"
+              disabled={!canWrite}
+              onClick={() => setStatus(row.memberId, "absent")}
+              aria-label={`Mark ${row.fullName} absent`}
+            >
+              ✗ Absent
+            </Button>
+            <Button
+              variant={value === "late" ? "outline" : "ghost"}
+              size="sm"
+              type="button"
+              disabled={!canWrite}
+              onClick={() => setStatus(row.memberId, "late")}
+              aria-label={`Mark ${row.fullName} late`}
+            >
+              Late
+            </Button>
+            <Button
+              variant={value === "excused" ? "outline" : "ghost"}
+              size="sm"
+              type="button"
+              disabled={!canWrite}
+              onClick={() => setStatus(row.memberId, "excused")}
+              aria-label={`Mark ${row.fullName} excused`}
+            >
+              Excused
+            </Button>
+          </div>
         )
       },
     },
@@ -302,7 +331,7 @@ export function AttendanceSessionPage() {
       render: (row) => (
         <Input
           aria-label={`Notes for ${row.fullName}`}
-          placeholder="Optional note"
+          placeholder="Optional note (e.g. reason)"
           value={marks[row.memberId]?.notes ?? ""}
           disabled={!canWrite}
           onChange={(event) => setNotes(row.memberId, event.target.value)}
@@ -387,7 +416,7 @@ export function AttendanceSessionPage() {
       <Card>
         <CardHeader
           title="Roster"
-          description={`${participants.length} member${participants.length === 1 ? "" : "s"} in this session`}
+          description={`${participants.length} member${participants.length === 1 ? "" : "s"} in this session — tick ✓ for present or ✗ for absent`}
           actions={
             canWrite ? (
               <>

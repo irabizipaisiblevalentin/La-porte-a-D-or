@@ -201,12 +201,13 @@ export const ROLES: RoleDef[] = [
   {
     key: "junior_singer",
     name: "Junior Singer",
-    description: "Young chorister still in school. Own profile, attendance, progress, junior events and announcements.",
+    description: "Young chorister still in school. Own profile, attendance, discipline, progress, junior events and announcements.",
     grants: [
       g("dashboard.view", "global"),
       g("member.read", "own"), g("member.write", "own"),
       g("music.read", "global"),
       g("attendance.read", "own"),
+      g("discipline.read", "own"),
       g("goals.read", "global"),
       g("events.read", "global"),
       g("training.read", "global"),
@@ -224,6 +225,7 @@ export const ROLES: RoleDef[] = [
       g("dashboard.view", "global"),
       g("member.read", "own"), g("member.write", "own"),
       g("attendance.read", "own"),
+      g("discipline.read", "own"),
       g("goals.read", "global"),
       g("events.read", "global"),
       g("training.read", "global"),

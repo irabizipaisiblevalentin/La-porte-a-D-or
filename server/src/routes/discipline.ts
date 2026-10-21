@@ -8,6 +8,7 @@ import { makePage, pagination, parse, queryString } from "../lib/http.js"
 import { id } from "../lib/security.js"
 import { isValidDateString, nowIso } from "../lib/time.js"
 import { assertGroupAccess, permittedGroupIds, requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js"
+import { notify } from "../services/notifications.js"
 
 export const disciplineRouter: Router = Router()
 
@@ -70,6 +71,43 @@ function getMemberRef(memberId: string): MemberRef | undefined {
 /** The permission a record requires depends on its category kind. */
 function permissionForKind(kind: string): "discipline.write" | "recognition.write" {
   return kind === "positive" ? "recognition.write" : "discipline.write"
+}
+
+/**
+ * Tells a member that a discipline or recognition record was created for them.
+ *
+ * A fault the member never hears about is not a correction, it is a note in a
+ * drawer — so this is part of recording it, not an optional extra. The same call
+ * also mirrors the message onto their own devices through the push service.
+ *
+ * A member without a sign-in account has nowhere to receive it; that is not an
+ * error, it is simply a record kept on paper until they are given access.
+ */
+function notifyMemberOfDiscipline(
+  memberId: string,
+  detail: { kind: string; label: string; date: string; actionTaken: string | null },
+): void {
+  const account = one<{ id: string }>("SELECT user_id AS id FROM members WHERE user_id IS NOT NULL AND id = ?", memberId)
+  if (!account?.id) return
+
+  const positive = detail.kind === "positive"
+  const title = positive ? "New recognition recorded" : "New discipline record"
+  const consequence = detail.actionTaken?.trim().replace(/[.\s]+$/, "")
+  const body = [
+    `${detail.label} on ${detail.date}.`,
+    consequence ? `${positive ? "Recognition" : "Action"}: ${consequence}.` : "",
+    "Open your discipline page to see the full record.",
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  notify({
+    userId: account.id,
+    type: positive ? "recognition" : "discipline",
+    title,
+    body,
+    link: "/app/discipline",
+  })
 }
 
 function loadDisciplineDto(recordId: string) {
@@ -264,6 +302,16 @@ disciplineRouter.post("/", requireAuth, requireAnyPermission("discipline.write",
     recordId, member.id, input.date, category.id, input.description, input.actionTaken ?? null,
     input.status ?? "open", input.followUpNotes ?? null, req.auth!.id, timestamp, timestamp,
   )
+
+  // Tell the member, so the fault (or the praise) appears on their own dashboard
+  // and discipline page instead of only in an administrator's list.
+  notifyMemberOfDiscipline(member.id, {
+    kind: category.kind,
+    label: category.label,
+    date: input.date,
+    actionTaken: input.actionTaken ?? null,
+  })
+
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,
     action: category.kind === "positive" ? "discipline.recognition_create" : "discipline.create",

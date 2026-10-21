@@ -459,8 +459,8 @@ function DashboardContent({ payload }: { payload: DashboardPayload }) {
 
         {typeof payload.disciplineAlerts === "number" ? (
           <SectionCard
-            title="Discipline"
-            description="Open negative records you are able to see."
+            title="Discipline & Recognition"
+            description="Open negative discipline records and updates."
             to="/app/discipline"
           >
             <div className="flex flex-wrap items-center gap-3">
@@ -476,7 +476,7 @@ function DashboardContent({ payload }: { payload: DashboardPayload }) {
                   ? `${payload.disciplineAlerts} open discipline record${
                       payload.disciplineAlerts === 1 ? "" : "s"
                     } currently require attention.`
-                  : "There are no open negative discipline records in your scope."}
+                  : "No open negative discipline records in your scope."}
               </p>
             </div>
           </SectionCard>
