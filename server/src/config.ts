@@ -92,7 +92,7 @@ export const config = {
  * serves an empty database after an ephemeral disk is wiped — which is how real
  * member records disappeared once already. The app now says so out loud.
  */
-export type RestoreAlertReason = "restore_failed" | "replication_disabled" | "litestream_unavailable"
+export type RestoreAlertReason = "restore_failed" | "replication_disabled" | "litestream_unavailable" | "pinned_restore"
 
 export interface RestoreAlert {
   reason: RestoreAlertReason
@@ -105,7 +105,7 @@ export interface RestoreAlert {
 const RESTORE_MARKER_FILE = path.join(dataDir, "RESTORE-FAILED.txt")
 
 function normalizeRestoreReason(value: string | undefined): RestoreAlert["reason"] {
-  if (value === "replication_disabled" || value === "litestream_unavailable") return value
+  if (value === "replication_disabled" || value === "litestream_unavailable" || value === "pinned_restore") return value
   return "restore_failed"
 }
 

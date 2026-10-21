@@ -16,7 +16,11 @@
 #   clear_restore_marker
 #
 # `reason` is a machine-readable token ("restore_failed", "replication_disabled",
-# "litestream_unavailable"); `detail` is shown to administrators.
+# "litestream_unavailable", "pinned_restore"); `detail` is shown to administrators.
+# "pinned_restore" is not a failure: it means RESTORE_TIMESTAMP is still set, so
+# each boot deliberately rolls the data back to the pinned moment. It is reported
+# because a *successful* pinned restore is the most dangerous state of all — the
+# service looks healthy while quietly discarding everything written since.
 
 if [ -z "${MARKER_FILE:-}" ]; then
   echo "[restore-alert] MARKER_FILE must be set before sourcing restore-alert.sh" >&2
@@ -41,8 +45,13 @@ mark_restore_problem() {
   export CHORALE_RESTORE_DETAIL="$detail"
   echo "[${LOG_TAG}] ##########################################################################"
   echo "[${LOG_TAG}] # DATA INTEGRITY WARNING: ${detail}"
-  echo "[${LOG_TAG}] # Starting anyway — the running app is NOT on the real database."
-  echo "[${LOG_TAG}] # Re-enter nothing until storage access is fixed and this restores."
+  if [ "$reason" = "pinned_restore" ]; then
+    echo "[${LOG_TAG}] # The app is on a real database, but an OLD one — this pin is still set."
+    echo "[${LOG_TAG}] # Anything entered now will be discarded at the next restart."
+  else
+    echo "[${LOG_TAG}] # Starting anyway — the running app is NOT on the real database."
+    echo "[${LOG_TAG}] # Re-enter nothing until storage access is fixed and this restores."
+  fi
   echo "[${LOG_TAG}] ##########################################################################"
   if [ "${REQUIRE_RESTORE:-0}" = "1" ]; then
     echo "[${LOG_TAG}] REQUIRE_RESTORE=1 — refusing to start with an unrestored database (the previous instance keeps serving)."

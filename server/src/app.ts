@@ -63,7 +63,12 @@ export function createApp(): Express {
       status: damaged.length > 0 ? "degraded" : "ok",
       app: config.appName,
       time: new Date().toISOString(),
-      ...(restoreAlert ? { warning: "database_restore_failed", restoreAlert } : {}),
+      ...(restoreAlert
+        ? {
+            warning: restoreAlert.reason === "pinned_restore" ? "database_restore_pinned" : "database_restore_failed",
+            restoreAlert,
+          }
+        : {}),
       ...(damaged.length > 0 ? { warning: "database_damaged", integrityProblems: damaged } : {}),
     })
   })

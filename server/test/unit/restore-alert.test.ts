@@ -149,6 +149,7 @@ test("reasons are normalised, and an unknown reason falls back to a real restore
   const cases: Array<[string, string]> = [
     ["replication_disabled", "replication_disabled"],
     ["litestream_unavailable", "litestream_unavailable"],
+    ["pinned_restore", "pinned_restore"],
     ["restore_failed", "restore_failed"],
     ["", "restore_failed"],
     ["something-else", "restore_failed"],
@@ -164,4 +165,36 @@ test("each reason gets a headline that says what to do", () => {
   assert.match(restoreAlertHeadline({ reason: "restore_failed", at: null, detail: null }), /could not be restored/i)
   assert.match(restoreAlertHeadline({ reason: "replication_disabled", at: null, detail: null }), /durable storage is not configured/i)
   assert.match(restoreAlertHeadline({ reason: "litestream_unavailable", at: null, detail: null }), /backup tool is missing/i)
+  // A pin is not a failure, and the headline must say what it does rather than
+  // reusing the failure wording.
+  assert.match(restoreAlertHeadline({ reason: "pinned_restore", at: null, detail: null }), /recovery pin is still set/i)
+})
+
+test("a pinned restore is reported distinctly and never suppresses a real failure", () => {
+  // Both problems must be recordable: a pin is not a failed restore, so the
+  // de-duplication guard must key on the action, not on "some restore problem".
+  const alert = { reason: "pinned_restore" as const, at: "2026-10-21T03:00:00Z", detail: "RESTORE_TIMESTAMP is set" }
+  reportRestoreAlert(alert)
+
+  const pinned = one<{ action: string; summary: string }>(
+    "SELECT action, summary FROM audit_logs WHERE action = 'system.database_restore_pinned'",
+  )
+  assert.ok(pinned, "the pin is recorded in the audit log")
+  assert.match(pinned!.summary, /recovery pin is still set/i)
+
+  const bell = one<{ title: string; body: string }>(
+    `SELECT n.title AS title, n.body AS body FROM notifications n
+       JOIN user_roles ur ON ur.user_id = n.user_id
+      WHERE ur.role_id = 'role_chairman' AND n.title LIKE '%recovery pin%'`,
+  )
+  assert.ok(bell, "the Chairman is told")
+  assert.match(bell!.body, /Remove RESTORE_TIMESTAMP/i, "the advice is how to stop it, not 'do not enter records'")
+  assert.doesNotMatch(bell!.body, /Do not re-enter/i, "that advice belongs to a failed restore, not a pin")
+
+  // A genuine failure recorded afterwards is not suppressed by the pin's entry.
+  reportRestoreAlert({ reason: "restore_failed", at: "2026-10-21T04:00:00Z", detail: "bucket unreachable" })
+  const failed = one<{ summary: string }>(
+    "SELECT summary FROM audit_logs WHERE action = 'system.database_restore_failed'",
+  )
+  assert.ok(failed, "a real restore failure is still recorded after a pin was reported")
 })

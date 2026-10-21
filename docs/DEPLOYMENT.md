@@ -112,7 +112,7 @@ iPad, the site must be added to the Home Screen first (iOS 16.4+).
 | `LITESTREAM_L1_INTERVAL`, `LITESTREAM_L2_INTERVAL`, `LITESTREAM_L3_INTERVAL` | Optional, defaults `15m`/`1h`/`6h` — compaction windows (each run costs listing + upload calls). |
 | `LITESTREAM_SNAPSHOT_INTERVAL` | Optional, default `24h` — how often a full copy of the database is written. |
 | `REQUIRE_RESTORE` | Optional. `1` makes `deploy/render-start.sh` **stop** instead of starting on an unrestored (empty) database when the bucket is unreachable. The app then never serves wrong data; Render keeps the previous instance up. Default: start and warn loudly. |
-| `RESTORE_TIMESTAMP` | Optional. Set to a point in time (e.g. `2026-10-20T13:00:00Z`) to restore **that** generation instead of the newest — the recovery step when the latest one is damaged. A pinned restore that fails **stops the deploy** rather than overwriting the bucket with an empty database. Remove it once `/api/health` reports `status: "ok"`. |
+| `RESTORE_TIMESTAMP` | Optional, and **dangerous to leave set**. Pins this boot's restore to a point in time (e.g. `2026-10-20T13:00:00Z`) instead of the newest — the recovery step when the latest generation is damaged. A pinned restore that fails **stops the deploy** rather than overwriting the bucket with an empty database. **While it is set, every restart rolls the data back to that moment and discards everything written since**, so remove it as soon as the recovery is done. The app now refuses to look healthy in the meantime: `/api/health` reports `warning: "database_restore_pinned"` and administrators get a red banner, an audit entry and a notification. |
 | `DATABASE_FILE` / `DATA_DIR` | Optional. Where `chorale.db` lives. Default `server/data/chorale.db`. |
 
 With `S3_*` set the server also **mirrors every upload** into the bucket under
@@ -378,10 +378,17 @@ Chairman's bell. See *Troubleshooting* below for what to do next.
      restores *that* point instead of the newest one — no tool needed on your own
      machine, and a pinned restore that fails **stops the deploy** rather than
      overwriting the bucket with an empty database.
-     Delete `RESTORE_TIMESTAMP` once `/api/health` reports `status: "ok"`, so
-     later redeploys go back to restoring the latest generation.
-  3. Confirm `/api/health` reports `status: "ok"` again, then reopen the pages that
-     were failing.
+
+     > **Delete `RESTORE_TIMESTAMP` as soon as the recovery is confirmed — this is
+     > not optional.** While it is set, *every* restart rolls the data back to that
+     > moment, so anything entered in between is silently discarded. A pinned
+     > restore that succeeds looks perfectly healthy, so do not wait for
+     > `/api/health` to complain before removing it — from the moment the pin is
+     > set the app reports `warning: "database_restore_pinned"` (red banner, audit
+     > entry, notification) precisely so the pin cannot be forgotten, and that
+     > warning disappears only when the variable is gone.
+  3. Confirm `/api/health` reports `status: "ok"` — with **no** `warning` field —
+     and reopen the pages that were failing.
 
   The probe lives in `server/src/services/data-integrity.ts`
   (`checkDatabaseIntegrity`), and is asserted by

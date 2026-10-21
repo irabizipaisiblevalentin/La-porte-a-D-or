@@ -42,3 +42,32 @@ export function isPlaceholderEmail(email: string | null | undefined): boolean {
 export function placeholderEmail(normalizedUsername: string): string {
   return `${normalizedUsername}@${NO_EMAIL_DOMAIN}`
 }
+
+/**
+ * A reserved, never-mailed "email" for an account whose real address is already
+ * used by someone else.
+ *
+ * A family often applies with one address — two siblings, or a parent enrolling a
+ * child. Both are real members and both must receive their own credentials at that
+ * address, but the `users` table allows an email to belong to exactly one login,
+ * and rightly so: sign-in by email has to resolve to one person. Two accounts
+ * sharing the literal address would make "sign in with this email" ambiguous.
+ *
+ * So the second account keeps a unique reserved form derived from the real
+ * address: `shared@example.org` becomes `shared+sibling-2@example.org`. It is
+ * still recognisably the same mailbox to a human reading the row, it is unique in
+ * the database, and it is never sent to — the member signs in with the username
+ * they are given, and every visible record (the member's contact details, the
+ * admin lists, the credential message) carries the real address.
+ *
+ * The `+` local-part form is deliberate: if anything ever did send to it, every
+ * mainstream mail provider delivers `local+tag@domain` to `local@domain`.
+ */
+export function sharedEmailAlias(email: string, attempt: number): string {
+  const trimmed = email.trim()
+  const at = trimmed.lastIndexOf("@")
+  const local = at === -1 ? trimmed : trimmed.slice(0, at)
+  const domain = at === -1 ? NO_EMAIL_DOMAIN : trimmed.slice(at + 1)
+  const suffix = attempt <= 1 ? "shared" : `shared-${attempt}`
+  return `${local}+${suffix}@${domain}`
+}

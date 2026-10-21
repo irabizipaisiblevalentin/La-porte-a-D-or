@@ -21,13 +21,25 @@ import { notifyMany } from "./notifications.js"
 export function restoreAlertHeadline(alert: RestoreAlert): string {
   if (alert.reason === "replication_disabled") return "Durable storage is not configured — every restart erases all data"
   if (alert.reason === "litestream_unavailable") return "Database backup tool is missing — this data is not being backed up"
+  if (alert.reason === "pinned_restore") return "A recovery pin is still set — every restart discards records entered since"
   return "Database could not be restored — recent records may be missing"
+}
+
+/**
+ * True for reasons where the app is knowingly running on the wrong (or an old)
+ * database, so the "do not re-enter records" advice applies as written.
+ * A pinned restore is different: the data is real and current once the pin is
+ * removed, so that advice would be misleading.
+ */
+function isRecoveryIncomplete(alert: RestoreAlert): boolean {
+  return alert.reason !== "pinned_restore"
 }
 
 export function reportRestoreAlert(alert: RestoreAlert | null): void {
   if (!alert) return
 
   const headline = restoreAlertHeadline(alert)
+  const incomplete = isRecoveryIncomplete(alert)
 
   console.error(
     [
@@ -36,20 +48,27 @@ export function reportRestoreAlert(alert: RestoreAlert | null): void {
       `# DATA INTEGRITY WARNING: ${headline}`,
       `# reason: ${alert.reason}${alert.at ? ` (at ${alert.at})` : ""}`,
       `# ${alert.detail ?? "see docs/DEPLOYMENT.md"}`,
-      "# The app is running, but it is NOT on the real database.",
-      "# Do not re-enter records until storage access is fixed and it restores.",
+      incomplete
+        ? "# The app is running, but it is NOT on the real database."
+        : "# The app is on a real database, but an OLD one — the recovery pin is still set.",
+      incomplete
+        ? "# Do not re-enter records until storage access is fixed and it restores."
+        : "# Remove RESTORE_TIMESTAMP to stop the rollbacks; what is there now will then be kept.",
       "##########################################################################",
       "",
     ].join("\n"),
   )
 
   try {
-    // One report per database: a restart of the same instance must not ring the
-    // Chairman's bell again, and the audit log is append-only.
-    if (one<{ id: string }>("SELECT id FROM audit_logs WHERE action = 'system.database_restore_failed' LIMIT 1")) return
+    // One report per kind of problem, per database: a restart of the same instance
+    // must not ring the Chairman's bell again, and the audit log is append-only. The
+    // action name distinguishes a rolled-back pin from a failed restore, so one can
+    // never suppress the record of the other.
+    const action = incomplete ? "system.database_restore_failed" : "system.database_restore_pinned"
+    if (one<{ id: string }>("SELECT id FROM audit_logs WHERE action = ? LIMIT 1", action)) return
 
     recordAudit({
-      action: "system.database_restore_failed",
+      action,
       entityType: "system",
       summary: headline,
       detail: { reason: alert.reason, at: alert.at, detail: alert.detail },
@@ -65,7 +84,9 @@ export function reportRestoreAlert(alert: RestoreAlert | null): void {
         userId: chairman.id,
         type: "system",
         title: headline,
-        body: `${alert.detail ?? "The database was not restored on the last restart."} Do not re-enter records until storage access is restored.`,
+        body: incomplete
+          ? `${alert.detail ?? "The database was not restored on the last restart."} Do not re-enter records until storage access is restored.`
+          : `${alert.detail ?? "The database was restored to a pinned moment."} Remove RESTORE_TIMESTAMP so new records stop being discarded.`,
         link: "/app/account",
       })),
     )

@@ -16,7 +16,7 @@ import { getGroupById, getGroupByKey, type GroupRow } from "../services/groups.j
 import { createMemberRecord, getMemberDetail } from "../services/members.js"
 import { groupAdminUserIds, notifyMany } from "../services/notifications.js"
 import { deliverLoginDetails } from "../services/onboarding.js"
-import { cleanDisplayName, normalizeUsername, placeholderEmail } from "../services/usernames.js"
+import { cleanDisplayName, NO_EMAIL_DOMAIN, normalizeUsername, placeholderEmail, sharedEmailAlias } from "../services/usernames.js"
 import { saveUpload } from "../services/uploads.js"
 
 export const applicationsRouter: Router = Router()
@@ -391,6 +391,28 @@ function allocateUsername(fullName: string): { username: string; normalized: str
   return { username: fallback, normalized: fallback }
 }
 
+/**
+ * The stored login email for a new account given the address the applicant used.
+ *
+ * Returns the address itself when nothing holds it. When another account already
+ * does — a parent enrolling two children on one address, say — returns a unique
+ * reserved alias instead of refusing. The member record still carries the real
+ * address, so the family is reachable there and both members read the same in the
+ * admin lists; the alias exists only because a login email must identify exactly
+ * one account.
+ */
+function uniqueLoginEmail(email: string, normalizedUsername: string): string {
+  const normalized = email.toLowerCase()
+  if (!one<{ id: string }>("SELECT id FROM users WHERE email_normalized = ?", normalized)) return email
+
+  for (let attempt = 1; attempt <= 99; attempt += 1) {
+    const alias = sharedEmailAlias(email, attempt)
+    if (!one<{ id: string }>("SELECT id FROM users WHERE email_normalized = ?", alias.toLowerCase())) return alias
+  }
+  // Vanishingly unlikely; fall back to something guaranteed unique.
+  return sharedEmailAlias(`${normalizedUsername}-${Date.now().toString(36)}@${NO_EMAIL_DOMAIN}`, 1)
+}
+
 // ---------------------------------------------------------------------------
 // GET / — list with filters
 // ---------------------------------------------------------------------------
@@ -722,7 +744,18 @@ type ApprovalOutcome =
       initialPassword: string
       /** Carried out of the transaction so the member can be emailed afterwards. */
       fullName: string
+      /**
+       * The login account's stored email. Unique by necessity, and a reserved
+       * alias when the applicant's address already belongs to another member.
+       */
       email: string
+      /**
+       * The address the applicant actually gave — where credentials are sent and
+       * what the member's contact record holds. Null when the form left it blank.
+       */
+      contactEmail: string | null
+      /** True when the email is shared, so the username is the only sign-in. */
+      usernameIsOnlySignIn: boolean
       groupName: string
     }
   | { created: false; memberId: string; userId: string | null }
@@ -816,12 +849,19 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     const { username, normalized: usernameNormalized } = allocateUsername(fresh.full_name)
     // The users table requires a unique, non-null email, so a name-only account
     // stores a reserved, non-routable placeholder that is never emailed.
-    const email = applicantEmail ?? placeholderEmail(usernameNormalized)
+    //
+    // An email that is already used by another member is not a reason to refuse
+    // the approval: one family applying for two people is ordinary, and both are
+    // real members who both need credentials. The second account keeps a unique
+    // reserved alias of the shared address (see sharedEmailAlias) while the
+    // member record below carries the real address, so both people are contacted
+    // there and both appear with the same email in every list.
+    const email = applicantEmail
+      ? uniqueLoginEmail(applicantEmail, usernameNormalized)
+      : placeholderEmail(usernameNormalized)
     const emailNormalized = email.toLowerCase()
-    const existingUser = one<{ id: string }>("SELECT id FROM users WHERE email_normalized = ?", emailNormalized)
-    if (existingUser) {
-      throw conflict(`An account already exists for ${email}.`, { fields: { email: "This email already has an account." } })
-    }
+    const sharesEmailWithExistingAccount =
+      applicantEmail !== null && emailNormalized !== applicantEmail.toLowerCase()
 
     // Carry whatever the applicant supplied (date of birth, gender, voice
     // section, address, occupation, etc.) into the member record.
@@ -915,8 +955,14 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
       username,
       initialPassword,
       fullName: fresh.full_name,
-      // The account email, which is the placeholder for a name-only applicant.
+      // The login account's stored email: unique, and a reserved alias when the
+      // applicant's address already belongs to another member.
       email,
+      // The address the applicant actually gave, which is where credentials must
+      // be sent and what the member's contact record holds. Equal to `email`
+      // except when the address is shared with an existing account.
+      contactEmail: applicantEmail,
+      usernameIsOnlySignIn: sharesEmailWithExistingAccount,
       groupName: group.name,
     }
   })
@@ -925,10 +971,17 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
     // Deliver the credentials, then answer. Approval is already committed, so a
     // mail failure changes only what the administrator is told — never the
     // member record.
+    //
+    // Addressed to the real contact address, never the reserved alias: when two
+    // members share one email, each person's own credentials must reach that same
+    // real inbox, not an address derived from it.
     const delivery = await deliverLoginDetails({
       fullName: outcome.fullName,
       username: outcome.username,
-      email: outcome.email,
+      email: outcome.contactEmail,
+      // Two people sharing one inbox each get their own message; naming the
+      // member in the subject keeps the two apart at a glance.
+      sharedMailbox: outcome.usernameIsOnlySignIn,
       password: outcome.initialPassword,
       groupName: outcome.groupName,
       signInUrl: `${req.protocol}://${req.get("host") ?? ""}`,
@@ -940,7 +993,10 @@ applicationsRouter.post("/:id/decision", requireAuth, requirePermission("applica
       summary: delivery.sent
         ? `Sign-in details for ${outcome.fullName} emailed to ${delivery.to}`
         : `Sign-in details for ${outcome.fullName} were not emailed (${delivery.reason})`,
-      detail: { username: outcome.username, to: delivery.to, reason: delivery.reason, error: delivery.error ?? null },
+      detail: {
+        username: outcome.username, to: delivery.to, reason: delivery.reason,
+        sharedMailbox: outcome.usernameIsOnlySignIn, error: delivery.error ?? null,
+      },
       ip: req.ip,
     })
 

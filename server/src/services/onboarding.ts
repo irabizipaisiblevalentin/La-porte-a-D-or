@@ -6,13 +6,26 @@ export interface LoginDetails {
   fullName: string
   /** Sign-in name derived from the full name. */
   username: string | null
-  /** Account email — a reserved placeholder when the applicant left the form blank. */
+  /**
+   * The address to send to, and the member's real contact address — a reserved
+   * placeholder only when the applicant left the form blank. This is never the
+   * internal alias of a shared address; that alias is not a working sign-in.
+   */
   email: string | null
   password: string
   /** Group the member was approved into. */
   groupName?: string | null
   /** Origin of the running site, e.g. https://la-porte-ador.onrender.com */
   signInUrl: string
+  /**
+   * True when another member already signs in with this same email address.
+   *
+   * The account can still be reached, but not by email: an email identifies
+   * exactly one login, and this inbox already identifies someone else. So the
+   * member is told plainly to use their username, and the message is marked so
+   * the two people sharing an inbox can tell their messages apart.
+   */
+  sharedMailbox?: boolean
 }
 
 /**
@@ -21,7 +34,10 @@ export interface LoginDetails {
  */
 export function loginDetailsText(input: LoginDetails): string {
   const hasEmail = Boolean(input.email && !isPlaceholderEmail(input.email))
-  const identifier = hasEmail ? (input.email as string) : (input.username ?? "")
+  // With a shared inbox the email cannot single out this member at sign-in, so
+  // the username is the identifier — the one thing that is theirs alone.
+  const signInWithUsernameOnly = Boolean(input.sharedMailbox) || !hasEmail
+  const identifier = signInWithUsernameOnly ? (input.username ?? "") : (input.email as string)
   const lines = [
     `Muraho ${input.fullName},`,
     "",
@@ -32,9 +48,17 @@ export function loginDetailsText(input: LoginDetails): string {
     `  Sign-in page:   ${input.signInUrl.replace(/\/$/, "")}/login`,
     `  Sign in with:   ${identifier}`,
   ]
-  // An account always carries a username, and a member who supplied an email can
-  // use either one — spelling both out avoids "I only know my email".
-  if (hasEmail && input.username) lines.push(`  or username:    ${input.username}`)
+  if (input.sharedMailbox) {
+    // Say why the email is not the sign-in, so nobody wastes a try on it.
+    lines.push(
+      "  (use your username above — this email address is already used by",
+      "   another member in your family, and an email signs in one person)",
+    )
+  } else if (hasEmail && input.username) {
+    // An account always carries a username, and a member who supplied an email
+    // can use either one — spelling both out avoids "I only know my email".
+    lines.push(`  or username:    ${input.username}`)
+  }
   lines.push(
     `  Password:       ${input.password}`,
     "",
@@ -68,7 +92,11 @@ export async function deliverLoginDetails(input: LoginDetails, trigger = "applic
 
   const result = await sendMail({
     to,
-    subject: `Your ${config.appName} sign-in details`,
+    // Two members sharing one inbox each get their own message; the name in the
+    // subject is what tells them apart at a glance.
+    subject: input.sharedMailbox
+      ? `Your ${config.appName} sign-in details — ${input.fullName}`
+      : `Your ${config.appName} sign-in details`,
     text: loginDetailsText(input),
     trigger,
   })

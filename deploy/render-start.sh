@@ -177,5 +177,16 @@ else
   fi
 fi
 
+# A pinned restore is a RECOVERY step, and a pinned restore that succeeds is the
+# most dangerous state this script can leave behind: the service looks perfectly
+# healthy while every restart silently rolls the data back to the pinned moment.
+# That is exactly how a day of applications and member records disappeared. The
+# pin is therefore reported to the app as a problem in its own right, and
+# `/api/health` will not say "ok" while it is set. Written last so nothing above
+# can clear it.
+if [ -n "$RESTORE_TIMESTAMP" ]; then
+  mark_restore_problem pinned_restore "RESTORE_TIMESTAMP=${RESTORE_TIMESTAMP} is set, so this boot restored the database to that moment and every further restart will do the same, discarding everything written since. Remove RESTORE_TIMESTAMP now that the recovery is done."
+fi
+
 echo "[render-start] starting app under Litestream replication…"
 exec "$LITESTREAM_BIN" replicate -config "$LITESTREAM_CONFIG" -exec "npm start"
