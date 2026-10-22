@@ -19,6 +19,8 @@ Errors: `{ error: { code, message, details } }`. Lists: `{ items, total, page, p
 - `POST /auth/password/reset` `{ token, password }` -> `{ ok }`
 - `GET /auth/invitation/:token` -> `{ invitation: { email, fullName } }`
 - `POST /auth/invitation/:token` `{ password }` -> `{ user }`
+- `POST /auth/avatar` `[auth]` multipart `file` (image) -> `{ avatarPath }`. Sets the signed-in account's own profile picture, stored in the **private** bucket and served from `/api/files/:id`; only the owner and account managers (`users.manage`) may read it, so a member never sees another member's face through this route. Replacing a picture deletes the file it supersedes.
+- `DELETE /auth/avatar` `[auth]` -> `{ ok, avatarPath: null }`. Removes the picture, falling back to a name initial. Uploading a member photograph (`POST /members/:id/photo`) also sets the linked account's avatar, so a member sees their own face rather than an initial.
 
 ## Public (no auth)
 - `GET /health` -> `{ status, app, time }`. When the last boot could not restore the database from durable storage, `warning: "database_restore_failed"` and `restoreAlert: { reason: "restore_failed" | "replication_disabled" | "litestream_unavailable", at, detail }` are added; the web app shows a red banner for group administrators and the Chairman (see `docs/DEPLOYMENT.md`, Troubleshooting).

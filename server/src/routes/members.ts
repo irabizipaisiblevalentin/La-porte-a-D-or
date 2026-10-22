@@ -411,6 +411,15 @@ membersRouter.post("/:id/photo", requireAuth, requirePermission("member.write"),
     originalName: req.file.originalname, mimeType: req.file.mimetype, data: req.file.buffer, uploadedBy: req.auth!.id,
   })
   run("UPDATE members SET photo_path = ?, updated_at = ? WHERE id = ?", saved.url, nowIso(), member.id)
+
+  // The member's own account shows their face too. Without this the photograph an
+  // administrator uploads would live only on the member record, and the person's
+  // top bar would still show a name initial — the picture they can already see in
+  // the directory. Only the account that this member owns is touched.
+  if (member.user_id) {
+    run("UPDATE users SET avatar_path = ?, updated_at = ? WHERE id = ?", saved.url, nowIso(), member.user_id)
+  }
+
   recordAudit({
     actorId: req.auth!.id, actorName: req.auth!.displayName,
     action: "member.photo_update", entityType: "member", entityId: member.id,

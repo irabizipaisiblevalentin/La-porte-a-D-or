@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
+import { ArrowLeft } from "lucide-react"
 import { ThemeToggle } from "../../components/ui"
 import { CHOIR_HERO_PHOTO } from "../../pages/public/gallery/photos.generated"
 
@@ -20,6 +21,15 @@ export function AuthLayout({
         <img src={CHOIR_HERO_PHOTO} alt="" className="h-full w-full object-cover opacity-15" />
         <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(10,11,15,0.85), rgba(10,11,15,0.97))" }} />
       </div>
+      {/* A way back to the public site without using the browser button: someone
+          who lands here by mistake should not be stuck on a sign-in form. */}
+      <Link
+        to="/"
+        className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full border border-ivory/20 bg-black/25 px-3 py-1.5 text-xs font-medium text-ivory/85 backdrop-blur transition hover:bg-black/40 hover:text-ivory"
+      >
+        <ArrowLeft size={14} />
+        Back to home
+      </Link>
       <div className="absolute right-4 top-4">
         <ThemeToggle className="text-ivory" />
       </div>

@@ -18,8 +18,10 @@ import { hashPassword, hashToken, id, token, validatePasswordStrength, verifyPas
 import { isoPlusMs, isExpired, nowIso } from "../lib/time.js"
 import { authRateLimit } from "../middleware/rate-limit.js"
 import { requireAuth } from "../middleware/auth.js"
+import { imageUpload } from "../middleware/upload.js"
 import { hashAndRemember } from "../services/credentials.js"
 import { emailDeliveryConfigured } from "../services/email.js"
+import { deleteFile, findUploadByUrl, saveUpload } from "../services/uploads.js"
 import { notifyMany } from "../services/notifications.js"
 import { isPlaceholderEmail, normalizeUsername } from "../services/usernames.js"
 
@@ -117,6 +119,72 @@ authRouter.get("/me", (req, res) => {
     return
   }
   res.json({ user: req.auth })
+})
+
+/**
+ * Replaces the signed-in account's profile picture.
+ *
+ * This is the person's own face in the top bar, so it belongs to the account
+ * rather than to a member record: an administrator who never applied to the choir
+ * still has one. Anyone signed in may change their own; there is no route to
+ * change somebody else's picture here.
+ *
+ * The previous file is removed only after the new one is stored, so a failed
+ * upload leaves the old picture standing instead of blanking it.
+ */
+authRouter.post("/avatar", requireAuth, imageUpload.single("file"), (req, res) => {
+  if (!req.file) throw badRequest("Choose an image file to upload.")
+
+  const previous = req.auth!.avatarPath
+  const saved = saveUpload({
+    bucket: "private",
+    entityType: "user_avatar",
+    entityId: req.auth!.id,
+    originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    data: req.file.buffer,
+    uploadedBy: req.auth!.id,
+  })
+
+  run("UPDATE users SET avatar_path = ?, updated_at = ? WHERE id = ?", saved.url, nowIso(), req.auth!.id)
+
+  // Only now that the new picture is safely stored is the old file discarded, and
+  // only the one this account registered — never a file that belongs to something
+  // else that happens to share the path.
+  if (previous && previous !== saved.url) {
+    const old = findUploadByUrl(previous)
+    if (old && old.entity_type === "user_avatar" && old.entity_id === req.auth!.id) deleteFile(old)
+  }
+
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "user.avatar_update", entityType: "user", entityId: req.auth!.id,
+    summary: `${req.auth!.displayName} updated their profile picture`, ip: req.ip,
+  })
+  res.status(201).json({ avatarPath: saved.url })
+})
+
+/** Removes the account's profile picture, falling back to a name initial. */
+authRouter.delete("/avatar", requireAuth, (req, res) => {
+  const previous = req.auth!.avatarPath
+  if (!previous) {
+    res.json({ ok: true, avatarPath: null })
+    return
+  }
+
+  const stored = findUploadByUrl(previous)
+
+  transaction(() => {
+    if (stored && stored.entity_type === "user_avatar" && stored.entity_id === req.auth!.id) deleteFile(stored)
+    run("UPDATE users SET avatar_path = NULL, updated_at = ? WHERE id = ?", nowIso(), req.auth!.id)
+  })
+
+  recordAudit({
+    actorId: req.auth!.id, actorName: req.auth!.displayName,
+    action: "user.avatar_remove", entityType: "user", entityId: req.auth!.id,
+    summary: `${req.auth!.displayName} removed their profile picture`, ip: req.ip,
+  })
+  res.json({ ok: true, avatarPath: null })
 })
 
 authRouter.post("/password", requireAuth, (req, res) => {

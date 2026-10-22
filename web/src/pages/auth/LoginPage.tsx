@@ -41,7 +41,7 @@ export function AdminLoginPage() {
 
 function SignInScreen({ variant }: { variant: LoginVariant }) {
   const copy = COPY[variant]
-  const { user, login, loading } = useAuth()
+  const { user, login, loading, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [identifier, setIdentifier] = useState("")
@@ -52,9 +52,16 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
 
   const setupStatus = useQuery<{ needsSetup: boolean }>("/setup/status")
 
-  // A member who already has a session and is still on a temporary password goes
-  // straight to the account page, never to a page the server will refuse.
-  if (!loading && user) return <Navigate to={user.mustChangePassword ? "/app/account" : "/app"} replace />
+  // A signed-in visitor is sent on to the platform rather than shown a form they
+  // have already filled, *unless* they asked for the form deliberately — an
+  // administrator using a shared computer, or somebody who wants to sign in as a
+  // different account. `?switch=1` is how the "not you?" link and the dashboard
+  // sign-out confirm that intent, so signing in is never forced on anyone who has
+  // a session, but the form is always reachable.
+  const wantsForm = new URLSearchParams(location.search).get("switch") === "1"
+  if (!loading && user && !wantsForm) {
+    return <Navigate to={user.mustChangePassword ? "/app/account" : "/app"} replace />
+  }
 
   // Where to land after signing in. Router state is how the auth guards send
   // someone here; `?next=` is how a scanned check-in link does, because it arrives
@@ -95,6 +102,31 @@ function SignInScreen({ variant }: { variant: LoginVariant }) {
         </div>
       }
     >
+      {user ? (
+        // Reached with `?switch=1`: the visitor has a live session but asked for the
+        // form. Say so, and give them the two honest choices rather than pretending
+        // they are signed out.
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-gold-400/35 bg-gold-400/10 px-3 py-2.5 text-sm">
+          <p>
+            You are still signed in as <strong>{user.displayName}</strong>.
+          </p>
+          <div className="flex flex-wrap gap-3 text-xs">
+            <Link to="/app" className="link font-medium">
+              Continue to the platform
+            </Link>
+            <button
+              type="button"
+              className="link font-medium"
+              onClick={() => {
+                void logout().then(() => navigate("/login?switch=1", { replace: true }))
+              }}
+            >
+              Sign out and use another account
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {setupStatus.data?.needsSetup ? (
         <div className="mb-4 rounded-xl border border-gold-400/35 bg-gold-400/10 px-3 py-2 text-sm">
           No administrator account exists yet.{" "}

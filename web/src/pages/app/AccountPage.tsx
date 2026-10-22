@@ -4,6 +4,7 @@ import { BellOff, BellRing, LogOut, Send, ShieldCheck } from "lucide-react"
 import { useAuth, type PermissionScope } from "../../auth/AuthProvider"
 import { api, ApiError } from "../../api/client"
 import { usePushNotifications, type PushNotificationsState } from "../../components/layout/usePushNotifications"
+import { AvatarUploader } from "./AvatarUploader"
 import {
   Badge,
   Button,
@@ -84,6 +85,13 @@ export function AccountPage() {
           </p>
         </div>
       ) : null}
+
+      <Card>
+        <CardHeader title="Profile picture" description="How you appear across the platform." />
+        <CardBody>
+          <AvatarUploader />
+        </CardBody>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

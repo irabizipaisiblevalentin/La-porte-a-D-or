@@ -130,6 +130,12 @@ function authorizeFileAccess(req: { auth?: import("../auth/access.js").AuthUser 
       // is ever requested through the private-file route. Reading it follows
       // reading the event.
       return user.permissions["events.read"] !== undefined
+    case "user_avatar":
+      // A face belongs to the person it shows. The owner always sees it, which is
+      // what the top bar needs; account managers may see the rest, so an
+      // administrator can still recognise somebody in a list. A member never sees
+      // another member's picture through this route.
+      return file.entity_id === user.id || user.permissions["users.manage"] !== undefined
     case "application_document": {
       const application = one<{ assigned_group_id: string | null; requested_group_id: string | null }>(
         "SELECT assigned_group_id, requested_group_id FROM applications WHERE id = ?", file.entity_id)

@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { privateStorageDir, publicStorageDir } from "../config.js"
-import { run } from "../db/index.js"
+import { one, run } from "../db/index.js"
 import { id } from "../lib/security.js"
 import { nowIso } from "../lib/time.js"
 import { deleteObject, getObjectStream, putObject } from "./object-storage.js"
@@ -104,6 +104,38 @@ export function absolutePathFor(file: Pick<FileRow, "bucket" | "path">): string 
   const relative = file.path.replace(`${file.bucket}/`, "")
   const root = file.bucket === "public" ? publicStorageDir : privateStorageDir
   return path.join(root, ...relative.split("/"))
+}
+
+/** The URL a stored file is served from, derived from its row. */
+export function urlFor(file: Pick<FileRow, "id" | "bucket" | "path">): string {
+  if (file.bucket === "public") return `/media/${file.path.replace(/^public\//, "")}`
+  return `/api/files/${file.id}`
+}
+
+/**
+ * Finds the stored file behind a URL.
+ *
+ * A URL is not a column: it is derived from the row's bucket and path (see
+ * `urlFor`). Callers that hold a URL recorded elsewhere — a member's photograph,
+ * an account's avatar — use this to reach the row again, for instance to delete
+ * the file it points at. Returns `null` when nothing matches, so a stale path left
+ * over from an earlier upload is handled rather than throwing.
+ */
+export function findUploadByUrl(url: string): FileRow | null {
+  const privateMatch = /^\/api\/files\/([^/?#]+)$/.exec(url)
+  if (privateMatch) {
+    return one<FileRow>("SELECT * FROM file_uploads WHERE id = ?", privateMatch[1]) ?? null
+  }
+
+  if (url.startsWith("/media/")) {
+    return (
+      one<FileRow>(
+        "SELECT * FROM file_uploads WHERE bucket = 'public' AND path = ?",
+        `public/${url.slice("/media/".length)}`,
+      ) ?? null
+    )
+  }
+  return null
 }
 
 export interface OpenedFile {

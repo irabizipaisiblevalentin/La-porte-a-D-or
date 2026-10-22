@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom"
-import { Bell, BellRing, LogOut, Menu, Search, Settings, UserRound, X } from "lucide-react"
+import { Bell, BellRing, Home, LogOut, Menu, Search, Settings, UserRound, X } from "lucide-react"
 import { useAuth } from "../../auth/AuthProvider"
 import { useQuery } from "../../api/hooks"
-import { Badge, Spinner, ThemeToggle } from "../../components/ui"
+import { Avatar, Badge, Spinner, ThemeToggle } from "../../components/ui"
 import { useDesktopNotifications } from "./useDesktopNotifications"
 import { usePushNotifications, type PushNotificationsState } from "./usePushNotifications"
+import { NotificationPrompt } from "./NotificationPrompt"
 import { RestoreAlertBanner } from "./RestoreAlertBanner"
 import { NAV_SECTIONS } from "./nav"
 
@@ -47,6 +48,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const unreadMessages = useMessagesUnread()
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4" aria-label="Main navigation">
+      {/* The choir's public front page, kept first and always available: signing
+          in should not make the landing page unreachable. */}
+      <div className="flex flex-col gap-1">
+        <a href="/" className="sidebar-link" onClick={onNavigate}>
+          <Home size={16} />
+          <span>Choir home page</span>
+        </a>
+      </div>
+
       {NAV_SECTIONS.map((section) => {
         const items = section.items.filter((item) => !item.permission || (item.permission === "member.read" ? can("member.read") : can(item.permission, item.scope)))
         if (items.length === 0) return null
@@ -132,23 +142,11 @@ function ProfileMenu() {
   }, [])
 
   if (!user) return null
-  const initials = user.displayName
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
 
   return (
     <div className="relative" ref={ref}>
       <button className="btn btn-ghost btn-sm flex items-center gap-2" onClick={() => setOpen((value) => !value)} aria-haspopup="menu" aria-expanded={open}>
-        {user.avatarPath ? (
-          <img src={user.avatarPath} alt="" className="h-7 w-7 rounded-full object-cover" />
-        ) : (
-          <span className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold" style={{ background: "color-mix(in srgb, var(--color-gold-400) 20%, transparent)", color: "var(--color-gold-600)" }}>
-            {initials || "?"}
-          </span>
-        )}
+        <Avatar src={user.avatarPath} name={user.displayName} size={28} />
         <span className="hidden text-left sm:block">
           <span className="block max-w-[10rem] truncate text-xs font-medium">{user.displayName}</span>
           <span className="muted block text-[10px]">{user.memberNo ?? user.roles.join(", ")}</span>
@@ -248,6 +246,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-dvh flex-col bg-ivory dark:bg-charcoal-950">
         <header className="flex h-16 items-center gap-3 border-b border-black/10 bg-white/85 px-4 backdrop-blur dark:border-gold-400/15 dark:bg-charcoal-900/85">
           <Brand />
+          <Link to="/" className="btn btn-ghost btn-sm gap-1.5" title="Go to the choir home page">
+            <Home size={16} />
+            <span className="hidden sm:inline">Home</span>
+          </Link>
           <div className="ml-auto">
             <ThemeToggle />
           </div>
@@ -300,6 +302,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="lg:hidden">
             <Brand compact />
           </div>
+          {/* The public landing page is a click away, so a member can always get
+              back to the choir's front door without signing out. */}
+          <Link
+            to="/"
+            className="btn btn-ghost btn-sm gap-1.5"
+            title="Go to the choir home page"
+          >
+            <Home size={16} />
+            <span className="hidden sm:inline">Home</span>
+          </Link>
           <GlobalSearch />
           <Link
             to="/app/search"
@@ -322,6 +334,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             {children}
           </div>
         </main>
+
+        <NotificationPrompt push={push} />
 
         <footer className="px-6 py-4 text-center text-[11px] text-black/40 dark:text-ivory/35">
           Chorale La Porte d'Or · Digital Choir Management Platform
