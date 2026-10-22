@@ -331,13 +331,17 @@ support-member records, even by guessing an id (the API returns 403/404).
 | `chairman` | global | **Chairman of the choir** — the founder and supreme administrator. Sees **all three groups** plus settings, integrations and audit. He does **not** approve/reject applications: each group's own administrator decides its applicants. |
 | `junior_admin` | junior + shared | Junior applications, members, attendance, discipline, progress; shared music/goals/events/training/announcements. |
 | `members_admin` | members + shared | Support-member applications, profiles, attendance, training, events, reports; shared read of the rest. |
-| `senior_singer` | own + shared read | Own profile/attendance, shared music, events, training, announcements. |
-| `junior_singer` | own + shared read | As above; no discipline view by default. |
+| `senior_singer` | own + shared read | Own profile, attendance and discipline records, shared music, events, training, announcements. |
+| `junior_singer` | own + shared read | As above. |
 | `support_member` | own + shared read | Support member's own records and shared read. |
 
 Settings, integrations, brand uploads and the audit log are **Chairman only** (organisation-wide).
-So is **removing a withdrawn member record** (`member.delete`), which erases the record and the
-sign-in account created at approval while keeping the application and the audit trail.
+
+**Deleting a member for good** (`member.delete`) erases the record, the sign-in account created at
+approval and the photograph, while keeping the application and the audit trail. The Chairman may
+delete anyone; each group's administrator may delete a member of their **own group**. A withdrawn
+member is deleted directly; deleting someone still on the active register must be confirmed
+explicitly, and the interface asks the administrator to type the member's name first.
 
 Each group's administrator can also **issue a fresh sign-in password** for a member of their own
 group (`member.reset_password`), so a locked-out member never has to wait for the Chairman. A reset

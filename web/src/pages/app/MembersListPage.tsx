@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { Plus, Search, UserPlus } from "lucide-react"
+import { Plus, Search, Trash2, UserPlus } from "lucide-react"
 import { api, toQuery } from "../../api/client"
 import { useDebounced, useMutation, useQuery } from "../../api/hooks"
 import { useAuth } from "../../auth/AuthProvider"
-import { permittedGroups } from "../../auth/groups"
+import { canActOnGroup, permittedGroups } from "../../auth/groups"
 import {
   Button,
   Card,
@@ -123,12 +123,36 @@ export function MembersListPage() {
     }) => api.post("/members", body),
   )
 
+  // Deleting straight from the directory, so an administrator does not have to
+  // open each record. The server re-checks the group and the confirmation flag.
+  const [pendingDelete, setPendingDelete] = useState<MemberListItem | null>(null)
+  const [typedName, setTypedName] = useState("")
+  const remove = useMutation((target: MemberListItem) =>
+    api.del<{ ok: boolean; memberNo: string; fullName: string }>(`/members/${target.id}`, {
+      confirmActive: target.status !== "withdrawn",
+    }),
+  )
+
+  async function confirmDelete() {
+    if (!pendingDelete) return
+    const result = await remove.run(pendingDelete)
+    if (!result) return
+    toast.success(`${result.memberNo} (${result.fullName}) was deleted for good.`)
+    setPendingDelete(null)
+    reload()
+  }
+
   useEffect(() => {
     if (!create.error) return
     setFields(create.error.fields ?? {})
     if (!create.error.fields) toast.error(create.error.message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [create.error])
+
+  useEffect(() => {
+    if (remove.error) toast.error(remove.error.message)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remove.error])
 
   const groups = meta.data?.groups ?? []
   const readableGroups = permittedGroups(groups, can, "member.read")
@@ -194,6 +218,27 @@ export function MembersListPage() {
       header: "Joined",
       align: "right",
       render: (row) => <span className="muted text-sm">{formatDate(row.joined_at)}</span>,
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) =>
+        canActOnGroup(can, "member.delete", row.group_key) ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Trash2 size={15} />}
+            aria-label={`Delete ${row.full_name} permanently`}
+            onClick={(event) => {
+              event.stopPropagation()
+              setTypedName("")
+              setPendingDelete(row)
+            }}
+          >
+            Delete
+          </Button>
+        ) : null,
     },
   ]
 
@@ -421,6 +466,63 @@ export function MembersListPage() {
             />
           </Field>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(pendingDelete)}
+        onClose={() => setPendingDelete(null)}
+        title={pendingDelete ? `Delete ${pendingDelete.full_name} permanently?` : "Delete member"}
+        description={
+          pendingDelete
+            ? `${pendingDelete.member_no} will be erased, together with the sign-in details created at approval and the photograph. This cannot be undone.`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingDelete(null)} disabled={remove.saving}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={<Trash2 size={15} />}
+              loading={remove.saving}
+              disabled={
+                !pendingDelete ||
+                typedName.trim().toLowerCase() !== pendingDelete.full_name.trim().toLowerCase()
+              }
+              onClick={confirmDelete}
+            >
+              Delete permanently
+            </Button>
+          </>
+        }
+      >
+        {pendingDelete ? (
+          <div className="flex flex-col gap-3">
+            {pendingDelete.status !== "withdrawn" ? (
+              <p className="text-sm">
+                <strong>
+                  {pendingDelete.full_name} is still {pendingDelete.status}.
+                </strong>{" "}
+                This removes a chorister who is on the register right now. If they are only away, withdraw them
+                instead — that keeps the record and history, and can be undone.
+              </p>
+            ) : null}
+            <p className="text-sm">
+              Deleting is recorded in the audit trail, and the application {pendingDelete.full_name} came from is
+              kept. Lost for good: the member record, the sign-in account and the photograph.
+            </p>
+            <Field label={`Type ${pendingDelete.full_name} to confirm`} htmlFor="confirm-member-delete">
+              <Input
+                id="confirm-member-delete"
+                value={typedName}
+                autoComplete="off"
+                onChange={(event) => setTypedName(event.target.value)}
+                placeholder={pendingDelete.full_name}
+              />
+            </Field>
+          </div>
+        ) : null}
       </Modal>
     </div>
   )

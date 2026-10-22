@@ -235,24 +235,41 @@ membersRouter.patch("/:id", requireAuth, requirePermission("member.write"), (req
 })
 
 /**
- * Removes a member record for good — the Chairman only (`member.delete`), and
- * only once the record has been withdrawn. An active member must be withdrawn
- * first, so this can never be a way to delete someone by accident. The
- * application the member came from is kept (its member link is cleared), and the
- * deletion itself is written to the immutable audit trail.
+ * Removes a member record for good.
+ *
+ * Who may do it: the Chairman anywhere (`member.delete` at global scope) and a
+ * group administrator for their own group's members, the same way they already
+ * manage those records. The check is `canActOnMember`, so a senior leader cannot
+ * reach across into the junior group by guessing an id.
+ *
+ * An active member can be erased in one step, but only when the caller says so
+ * explicitly (`confirmActive: true`). Without it, an active record is refused and
+ * the message points at withdrawal — a single accidental DELETE must not be able
+ * to empty the register. This is a real confirmation, not a formality: the account
+ * the member signs in with, their photograph and every link to them go with it.
+ *
+ * What survives: the application the member came from (its member link is
+ * cleared) and the immutable audit trail, so the choir can still prove who applied
+ * and who removed them. An administrator's own account is never removed by this
+ * route; the role must be taken away first.
  */
 membersRouter.delete("/:id", requireAuth, requirePermission("member.delete"), (req, res) => {
   const member = getMember(String(req.params.id))
   if (!member) throw notFound("That member does not exist.")
-  if (member.status !== "withdrawn") {
-    throw badRequest(`${member.full_name} is ${member.status}. Withdraw the member first, then remove the record.`)
+  if (!canActOnMember(req.auth!, "member.delete", member)) throw forbidden()
+
+  const confirmActive = req.body?.confirmActive === true
+  if (member.status !== "withdrawn" && !confirmActive) {
+    throw badRequest(
+      `${member.full_name} is ${member.status}. Withdraw the member first, or confirm you want the active record erased.`,
+    )
   }
 
   // A member account must never take an administrator's account with it.
   const adminRole = member.user_id
     ? one<{ c: number }>(
         `SELECT COUNT(*) AS c FROM user_roles
-          WHERE user_id = ? AND role_id IN ('role_chairman','role_senior_leader','role_junior_admin','role_members_admin')`,
+          WHERE user_id = ? AND role_id IN ('role_chairman','role_senior_leader','role_junior_admin','role_members_admin','role_events_coordinator')`,
         member.user_id,
       )?.c ?? 0
     : 0
@@ -279,7 +296,7 @@ membersRouter.delete("/:id", requireAuth, requirePermission("member.delete"), (r
     },
     ip: req.ip,
   })
-  res.json({ ok: true, memberNo: member.member_no })
+  res.json({ ok: true, memberNo: member.member_no, fullName: member.full_name })
 })
 
 /**

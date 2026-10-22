@@ -228,6 +228,7 @@ export function MemberDetailPage() {
 
   const [editing, setEditing] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [typedName, setTypedName] = useState("")
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetCredentials, setResetCredentials] = useState<
     { username: string | null; password: string; delivery: CredentialDelivery } | null
@@ -244,7 +245,9 @@ export function MemberDetailPage() {
   const sendCredentials = useMutation(() =>
     api.post<{ delivery: CredentialDelivery }>(`/members/${id}/send-credentials`),
   )
-  const remove = useMutation(() => api.del<{ ok: boolean; memberNo: string }>(`/members/${id}`))
+  const remove = useMutation((body: { confirmActive?: boolean }) =>
+    api.del<{ ok: boolean; memberNo: string; fullName: string }>(`/members/${id}`, body),
+  )
   const resetPassword = useMutation(() =>
     api.post<{ credentials: { username: string | null; password: string }; delivery: CredentialDelivery }>(
       `/members/${id}/reset-password`,
@@ -291,9 +294,9 @@ export function MemberDetailPage() {
   const scope = groupScope(member?.group_key)
   const canWrite = scope ? can("member.write", scope) : can("member.write")
   const canSensitive = can("member.sensitive.read", "junior")
-  // Removing a record is deliberately rare: the Chairman only, and only once the
-  // member has been withdrawn (the server enforces both as well).
-  const canRemove = can("member.delete") && member?.status === "withdrawn"
+  // Who may erase a record: the Chairman anywhere, and a group administrator for
+  // their own group — the server enforces the same rule.
+  const canRemove = scope ? can("member.delete", scope) : can("member.delete")
   // A group administrator may reset a password for their own group's members;
   // with a record that has no sign-in account there is nothing to reset.
   const canResetPassword = Boolean(member?.user_id) && (scope
@@ -422,7 +425,6 @@ export function MemberDetailPage() {
     }
   }
 
-  /** Erases a withdrawn record (its account and photograph go with it). */
   /**
    * Issues a fresh password after the administrator confirms. The new details
    * are shown once in a dialog: a reset closes the member's other sessions, so
@@ -440,11 +442,19 @@ export function MemberDetailPage() {
     reload()
   }
 
+  /**
+   * Erases a member for good — the account and photograph go with them.
+   *
+   * Sends `confirmActive` for anyone who is not withdrawn, because the server
+   * refuses an active record without it. That is what makes this dialog's
+   * typed-name check a real guard rather than decoration.
+   */
   async function onRemove() {
+    if (!member) return
     setConfirmRemove(false)
-    const result = await remove.run()
+    const result = await remove.run({ confirmActive: member.status !== "withdrawn" })
     if (!result) return
-    toast.success(`${result.memberNo} was removed.`)
+    toast.success(`${result.memberNo} (${result.fullName}) was deleted for good.`)
     navigate("/app/members")
   }
 
@@ -729,16 +739,23 @@ export function MemberDetailPage() {
 
       {canRemove ? (
         <Card>
-          <CardHeader title="Remove this record" />
+          <CardHeader title="Delete this member permanently" />
           <CardBody className="flex flex-col gap-3">
             <p className="text-sm">
-              {member.full_name} has been withdrawn. Removing the record erases the member, the sign-in account
-              created when the application was approved and the photograph — the application itself and the audit
-              trail are kept. This cannot be undone.
+              {member.full_name} is {member.status === "withdrawn" ? "withdrawn" : `still ${member.status}`}. Deleting
+              erases the member, the sign-in account created when the application was approved and the photograph
+              completely. The application itself and the audit trail are kept.{" "}
+              <strong>This cannot be undone.</strong>
             </p>
+            {member.status !== "withdrawn" ? (
+              <p className="muted text-sm">
+                Suspending instead is usually what you want: set the status to Withdrawn and the record, history and
+                sign-in details stay, ready to reactivate.
+              </p>
+            ) : null}
             <div>
-              <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => setConfirmRemove(true)}>
-                Remove record
+              <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => { setTypedName(""); setConfirmRemove(true) }}>
+                Delete permanently
               </Button>
             </div>
           </CardBody>
@@ -818,23 +835,50 @@ export function MemberDetailPage() {
       <Modal
         open={confirmRemove}
         onClose={() => setConfirmRemove(false)}
-        title={`Remove ${member.full_name}?`}
-        description={`${member.member_no} will be erased, together with the sign-in details created at approval. This cannot be undone.`}
+        title={`Delete ${member.full_name} permanently?`}
+        description={`${member.member_no} will be erased, together with the sign-in details created at approval and the photograph. This cannot be undone.`}
         footer={
           <>
             <Button variant="ghost" onClick={() => setConfirmRemove(false)} disabled={remove.saving}>
               Cancel
             </Button>
-            <Button variant="danger" icon={<Trash2 size={15} />} loading={remove.saving} onClick={onRemove}>
-              Remove permanently
+            <Button
+              variant="danger"
+              icon={<Trash2 size={15} />}
+              loading={remove.saving}
+              disabled={typedName.trim().toLowerCase() !== member.full_name.trim().toLowerCase()}
+              onClick={onRemove}
+            >
+              Delete permanently
             </Button>
           </>
         }
       >
-        <p className="text-sm">
-          Removing a record is recorded in the audit trail. If {member.full_name} is really coming back, leave the
-          record in place instead — a withdrawn record can be reactivated.
-        </p>
+        <div className="flex flex-col gap-3">
+          {member.status !== "withdrawn" ? (
+            <p className="text-sm">
+              <strong>{member.full_name} is still {member.status}.</strong> Deleting an active member removes a
+              chorister who is on the register right now. If they are only away, withdraw them instead — that keeps
+              their record and history, and can be undone.
+            </p>
+          ) : null}
+          <p className="text-sm">
+            Deleting is recorded in the audit trail, and the application {member.full_name} came from is kept. What is
+            lost for good: the member record, the sign-in account, and the photograph.
+          </p>
+          <Field
+            label={`Type ${member.full_name} to confirm`}
+            htmlFor="confirm-delete-name"
+          >
+            <Input
+              id="confirm-delete-name"
+              value={typedName}
+              autoComplete="off"
+              onChange={(event) => setTypedName(event.target.value)}
+              placeholder={member.full_name}
+            />
+          </Field>
+        </div>
       </Modal>
 
       <Modal

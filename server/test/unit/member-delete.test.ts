@@ -1,14 +1,15 @@
 /**
  * Removing a member record for good.
  *
- * A withdrawn member can be erased by the Chairman (`member.delete`), together
- * with the sign-in account that approval created — while the application the
- * member came from is kept (its link is cleared) and the removal itself lands in
- * the immutable audit trail.
+ * A member record can be erased for good: by the Chairman anywhere, and by a
+ * group administrator for their own group's members, together with the sign-in
+ * account that approval created — while the application the member came from is
+ * kept (its link is cleared) and the removal itself lands in the immutable audit
+ * trail.
  *
- * Covered here: the permission is Chairman-only, an active member can never be
- * removed by accident, the account and its photograph really go, and the login
- * stops working.
+ * Covered here: group scoping is enforced, an active member is refused unless the
+ * erasure is explicitly confirmed, the account and its photograph really go, and
+ * the login stops working.
  */
 import { test, after } from "node:test"
 import assert from "node:assert/strict"
@@ -38,6 +39,7 @@ const { saveUpload, absolutePathFor } = await import("../../src/services/uploads
 const COOKIE = config.session.cookieName
 const CHAIRMAN_EMAIL = "chairman@laportedor.local"
 const SENIOR_EMAIL = "senior.admin@laportedor.local"
+const JUNIOR_EMAIL = "junior.admin@laportedor.local"
 
 let server: Server
 let base: string
@@ -142,23 +144,51 @@ test("setup", async () => {
   base = `http://127.0.0.1:${address.port}`
 })
 
-test("a group administrator cannot remove a member record", async () => {
+test("a group administrator can remove a record in their own group", async () => {
   const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
-  const member = await createWithdrawnMember(senior, "Delete Forbidden", "delete-forbidden@example.com")
+  const member = await createWithdrawnMember(senior, "Delete Own Group", "delete-own-group@example.com")
   const res = await api("DELETE", `/api/members/${member.memberId}`, { cookie: senior })
-  assert.equal(res.status, 403, JSON.stringify(res.json))
-  assert.ok(one("SELECT id FROM members WHERE id = ?", member.memberId), "the record is untouched")
+  assert.equal(res.status, 200, JSON.stringify(res.json))
+  assert.equal(one("SELECT id FROM members WHERE id = ?", member.memberId), undefined, "the record is gone")
 })
 
-test("an active member is never removed by accident", async () => {
+test("a group administrator cannot remove a member of another group", async () => {
+  const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
+  // A junior member, created by the junior administrator.
+  const junior = await login(JUNIOR_EMAIL, process.env.JUNIOR_ADMIN_PASSWORD!)
+  const applicationId = await submitApplication("Delete Cross Group", "delete-cross-group@example.com", "Junior")
+  const decision = await api("POST", `/api/applications/${applicationId}/decision`, {
+    cookie: junior,
+    body: { decision: "approve" },
+  })
+  assert.equal(decision.status, 201, `approval failed: ${JSON.stringify(decision.json)}`)
+  const memberId = decision.json.member.member.id
+  await api("PATCH", `/api/members/${memberId}`, { cookie: junior, body: { status: "withdrawn" } })
+
+  const res = await api("DELETE", `/api/members/${memberId}`, { cookie: senior })
+  assert.equal(res.status, 403, JSON.stringify(res.json))
+  assert.ok(one("SELECT id FROM members WHERE id = ?", memberId), "the junior record is untouched by the senior admin")
+})
+
+test("an active member is refused unless the caller confirms the erasure", async () => {
   const senior = await login(SENIOR_EMAIL, process.env.SENIOR_ADMIN_PASSWORD!)
   const member = await createWithdrawnMember(senior, "Delete Active", "delete-active@example.com", { withdraw: false })
-  const chairman = await login(CHAIRMAN_EMAIL, process.env.CHAIRMAN_PASSWORD!)
 
-  const res = await api("DELETE", `/api/members/${member.memberId}`, { cookie: chairman })
-  assert.equal(res.status, 400, JSON.stringify(res.json))
-  assert.match(String(res.json?.error?.message ?? ""), /withdraw/i)
+  // Without the explicit flag an active record stays: a stray DELETE must not
+  // be able to empty the register.
+  const refused = await api("DELETE", `/api/members/${member.memberId}`, { cookie: senior })
+  assert.equal(refused.status, 400, JSON.stringify(refused.json))
+  assert.match(String(refused.json?.error?.message ?? ""), /withdraw|confirm/i)
   assert.ok(one("SELECT id FROM members WHERE id = ?", member.memberId), "the active record stays")
+
+  // With it, the active member really is erased.
+  const removed = await api("DELETE", `/api/members/${member.memberId}`, {
+    cookie: senior,
+    body: { confirmActive: true },
+  })
+  assert.equal(removed.status, 200, JSON.stringify(removed.json))
+  assert.equal(one("SELECT id FROM members WHERE id = ?", member.memberId), undefined, "the record is gone")
+  assert.equal(one("SELECT id FROM users WHERE id = ?", member.userId), undefined, "the account is gone")
 })
 
 test("an unknown member is not found", async () => {
@@ -210,7 +240,8 @@ test("the Chairman removes a withdrawn record, its account, its photo and keeps 
   assert.equal(staleLogin.status, 401, JSON.stringify(staleLogin.json))
 
   const audited = one<{ n: number; summary: string }>(
-    "SELECT COUNT(*) AS n, MAX(summary) AS summary FROM audit_logs WHERE action = 'member.delete'",
+    "SELECT COUNT(*) AS n, MAX(summary) AS summary FROM audit_logs WHERE action = 'member.delete' AND entity_id = ?",
+    member.memberId,
   )!
   assert.equal(audited.n, 1, "the removal is recorded once in the audit trail")
   assert.match(audited.summary, /removed from the register/i)
